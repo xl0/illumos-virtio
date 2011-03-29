@@ -66,11 +66,17 @@
 #define	_DEV_PCI_VIRTIOVAR_H_
 
 #include <sys/types.h>
-#include <sys/queue.h>
-#include <machine/bus.h>
-#include <dev/pci/virtioreg.h>
+#include <sys/dditypes.h>
+#include <sys/cmn_err.h>
+#include <sys/list.h>
+
+#define TRACE { cmn_err (CE_NOTE, "%s:%d %s()\n", __FILE__, __LINE__, __func__); }
+
+typedef boolean_t bool;
+#define __packed  __attribute__((packed))
+
 struct vq_entry {
-	SIMPLEQ_ENTRY(vq_entry)	qe_list; /* free list */
+	list_node_t		qe_list;
 	uint16_t		qe_index; /* index in vq_desc array */
 	/* followings are used only when it is the `head' entry */
 	int16_t			qe_next;     /* next enq slot */
@@ -94,16 +100,19 @@ struct virtqueue {
 	int			vq_availoffset;
 	int			vq_usedoffset;
 	int			vq_indirectoffset;
-	bus_dma_segment_t	vq_segs[1];
+	ddi_dma_cookie_t	vq_dma_cookie;
+	ddi_dma_handle_t	vq_dma_handle;
+	ddi_acc_handle_t	vq_dma_acch;
 	unsigned int		vq_bytesize;
-	bus_dmamap_t		vq_dmamap;
+//	bus_dmamap_t		vq_dmamap;
 
 	int			vq_maxsegsize;
 	int			vq_maxnsegs;
 
 	/* free entry management */
 	struct vq_entry		*vq_entries;
-	SIMPLEQ_HEAD(, vq_entry) vq_freelist;
+	list_t		vq_freelist;
+//	SIMPLEQ_HEAD(, vq_entry) vq_freelist;
 	kmutex_t		vq_freelist_lock;
 
 	/* enqueue/dequeue status */
@@ -118,34 +127,35 @@ struct virtqueue {
 };
 
 struct virtio_softc {
-	device_t		sc_dev;
-	pci_chipset_tag_t	sc_pc;
-	pcitag_t		sc_tag;
-	bus_dma_tag_t		sc_dmat;
+	dev_info_t		*sc_dev;
 
-	bus_dma_tag_t       virtio_dmat;
+//	pci_chipset_tag_t	sc_pc;
+//	pcitag_t		sc_tag;
+//	bus_dma_tag_t		sc_dmat;
+
+//	bus_dma_tag_t       virtio_dmat;
 
 
-	int			sc_ipl; /* set by child */
-	void			*sc_ih;
+	void			*sc_ipl; /* interrupt priority, set by the user */
+//	void			*sc_ih;
 
-	bus_space_tag_t		sc_iot;
-	bus_space_handle_t	sc_ioh;
-	bus_size_t		sc_iosize;
+//	bus_space_tag_t		sc_iot;
+	ddi_acc_handle_t	sc_ioh;
+	uint8_t			*sc_io_addr;
+//	bus_size_t		sc_iosize;
 	int			sc_config_offset;
 
 	uint32_t		sc_features;
 	bool			sc_indirect;
 
-	int			sc_nvqs; /* set by child */
-	struct virtqueue	*sc_vqs; /* set by child */
+	int			sc_nvqs; /* set by the user */ 
+	struct virtqueue	*sc_vqs; /* set by the user */
 
 	int			sc_childdevid;
-	device_t		sc_child; /* set by child */
+//	device_t		sc_child; /* set by child */
 	int			(*sc_config_change)(struct virtio_softc*);
 					 /* set by child */
 	int			(*sc_intrhand)(struct virtio_softc*);
-					 /* set by child */
 };
 
 /* The standard layout for the ring is a continuous chunk of memory which
@@ -192,10 +202,10 @@ void virtio_reinit_end(struct virtio_softc *);
 
 int virtio_enqueue_prep(struct virtio_softc*, struct virtqueue*, int*);
 int virtio_enqueue_reserve(struct virtio_softc*, struct virtqueue*, int, int);
-int virtio_enqueue(struct virtio_softc*, struct virtqueue*, int,
-		   bus_dmamap_t, bool);
-int virtio_enqueue_p(struct virtio_softc*, struct virtqueue*, int,
-		     bus_dmamap_t, bus_addr_t, bus_size_t, bool);
+//int virtio_enqueue(struct virtio_softc*, struct virtqueue*, int,
+//		   bus_dmamap_t, bool);
+//int virtio_enqueue_p(struct virtio_softc*, struct virtqueue*, int,
+//		     bus_dmamap_t, bus_addr_t, bus_size_t, bool);
 int virtio_enqueue_commit(struct virtio_softc*, struct virtqueue*, int, bool);
 int virtio_enqueue_abort(struct virtio_softc*, struct virtqueue*, int);
 
@@ -205,5 +215,6 @@ int virtio_dequeue_commit(struct virtio_softc*, struct virtqueue*, int);
 int virtio_vq_intr(struct virtio_softc *);
 void virtio_stop_vq_intr(struct virtio_softc *, struct virtqueue *);
 void virtio_start_vq_intr(struct virtio_softc *, struct virtqueue *);
+
 
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */

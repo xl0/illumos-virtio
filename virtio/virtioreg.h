@@ -130,7 +130,7 @@ struct vring_desc {
 struct vring_avail {
         uint16_t flags;
         uint16_t idx;
-        uint16_t ring[0];
+        uint16_t ring[];
 } __packed;
 
 /* u32 is used here for ids for padding reasons. */
@@ -144,7 +144,7 @@ struct vring_used_elem {
 struct vring_used {
         uint16_t flags;
         uint16_t idx;
-        struct vring_used_elem ring[0];
+        struct vring_used_elem ring[];
 } __packed;
 
 #define VIRTIO_PAGE_SIZE	(4096)
