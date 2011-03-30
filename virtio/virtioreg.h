@@ -67,6 +67,11 @@
 
 #include <sys/types.h>
 
+#define PCI_VENDOR_QUMRANET 0x1af4
+#define PCI_DEV_VIRTIO_MIN 0x1000
+#define PCI_DEV_VIRTIO_MAX 0x103f
+#define VIRTIO_PCI_ABI_VERSION 0
+
 /* Virtio product id (subsystem) */
 #define PCI_PRODUCT_VIRTIO_NETWORK	1
 #define PCI_PRODUCT_VIRTIO_BLOCK	2
