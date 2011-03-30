@@ -1,3 +1,5 @@
+
+/* Heavily based on the NetBSD virtio driver by Minoura Makoto. */
 /*
  * Copyright (c) 2010 Minoura Makoto.
  * All rights reserved.
@@ -40,25 +42,10 @@
 #include <sys/bootconf.h>
 #include <sys/bootsvcs.h>
 #include <sys/sysmacros.h>
-//#include <sys/bootinfo.h>
 #include <sys/pci.h>
 
 #include "virtiovar.h"
 #include "virtioreg.h"
-#if 0
-static const char *virtio_device_name[] = {
-	"Unknown (0)",		/* 0 */
-	"Network",		/* 1 */
-	"Block",		/* 2 */
-	"Console",		/* 3 */
-	"Entropy",		/* 4 */
-	"Memory Balloon",	/* 5 */
-	"Unknown (6)",		/* 6 */
-	"Unknown (7)",		/* 7 */
-	"Unknown (8)",		/* 8 */
-	"9P Transport"		/* 9 */
-};
-#endif
 #define NDEVNAMES	(sizeof(virtio_device_name)/sizeof(char*))
 #define MINSEG_INDIRECT	2	/* use indirect if nsegs >= this value */
 #define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))& \
@@ -294,6 +281,30 @@ virtio_write_device_config_8(struct virtio_softc *sc,
 }
 
 /*
+ * Interrupt handler.
+ */
+static int
+virtio_intr(void *arg)
+{
+	struct virtio_softc *sc = arg;
+	int isr, r = 0;
+
+	/* check and ack the interrupt */
+	isr = ddi_get8(sc->sc_ioh,
+		(uint8_t *) (sc->sc_io_addr + VIRTIO_CONFIG_ISR_STATUS));
+	if (isr == 0)
+		return 0;
+
+	if ((isr & VIRTIO_CONFIG_ISR_CONFIG_CHANGE) &&
+	    (sc->sc_config_change != NULL))
+		r = (sc->sc_config_change)(sc);
+	if (sc->sc_intrhand != NULL)
+		r |= (sc->sc_intrhand)(sc);
+
+	return r;
+}
+
+/*
  * dmamap sync operations for a virtqueue.
  */
 static inline void
@@ -344,6 +355,55 @@ vq_sync_indirect(struct virtio_softc *sc, struct virtqueue *vq, int slot,
 #endif
 }
 
+/*
+ * Can be used as sc_intrhand.
+ */
+/*
+ * Scan vq, bus_dmamap_sync for the vqs (not for the payload),
+ * and calls (*vq_done)() if some entries are consumed.
+ */
+int
+virtio_vq_intr(struct virtio_softc *sc)
+{
+	struct virtqueue *vq;
+	int i, r = 0;
+
+	for (i = 0; i < sc->sc_nvqs; i++) {
+		vq = &sc->sc_vqs[i];
+		if (vq->vq_queued) {
+			vq->vq_queued = 0;
+//			vq_sync_aring(sc, vq, BUS_DMASYNC_POSTWRITE);
+		}
+//		vq_sync_uring(sc, vq, BUS_DMASYNC_POSTREAD);
+//		membar_consumer();
+		if (vq->vq_used_idx != vq->vq_used->idx) {
+			if (vq->vq_done)
+				r |= (vq->vq_done)(vq);
+		}
+	}
+		
+
+	return r;
+}
+
+/*
+ * Start/stop vq interrupt.  No guarantee.
+ */
+void
+virtio_stop_vq_intr(struct virtqueue *vq)
+{
+	vq->vq_avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+//	vq_sync_aring(sc, vq, BUS_DMASYNC_PREWRITE);
+	vq->vq_queued++;
+}
+
+void
+virtio_start_vq_intr(struct virtqueue *vq)
+{
+	vq->vq_avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+//	vq_sync_aring(sc, vq, BUS_DMASYNC_PREWRITE);
+	vq->vq_queued++;
+}
 
 /*
  * Initialize vq structure.
@@ -420,7 +480,7 @@ static ddi_device_acc_attr_t virtio_vq_devattr = {
  */
 int
 virtio_alloc_vq(struct virtio_softc *sc,
-		struct virtqueue *vq, int index, int maxsegsize, int maxnsegs,
+		struct virtqueue *vq, int index, int maxnsegs,
 		const char *name)
 {
 	int vq_size, allocsize1, allocsize2, allocsize3, allocsize = 0;
@@ -542,7 +602,6 @@ virtio_alloc_vq(struct virtio_softc *sc,
 					  + vq->vq_indirectoffset);
 	}
 	vq->vq_bytesize = allocsize;
-	vq->vq_maxsegsize = maxsegsize;
 	vq->vq_maxnsegs = maxnsegs;
 
 	/* free slot management */
