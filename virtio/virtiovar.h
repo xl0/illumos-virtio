@@ -193,7 +193,7 @@ void virtio_write_device_config_2(struct virtio_softc *, int, uint16_t);
 void virtio_write_device_config_4(struct virtio_softc *, int, uint32_t);
 void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
 
-int virtio_alloc_vq(struct virtio_softc*, struct virtqueue*, int, int, int,
+int virtio_alloc_vq(struct virtio_softc*, struct virtqueue*, int, int,
 		    const char*);
 int virtio_free_vq(struct virtio_softc*, struct virtqueue*);
 void virtio_reset(struct virtio_softc *);
@@ -213,8 +213,9 @@ int virtio_dequeue(struct virtio_softc*, struct virtqueue*, int *, int *);
 int virtio_dequeue_commit(struct virtio_softc*, struct virtqueue*, int);
 
 int virtio_vq_intr(struct virtio_softc *);
-void virtio_stop_vq_intr(struct virtio_softc *, struct virtqueue *);
-void virtio_start_vq_intr(struct virtio_softc *, struct virtqueue *);
+void virtio_stop_vq_intr(struct virtqueue *);
+void virtio_start_vq_intr(struct virtqueue *);
 
-
+void virtio_show_features(struct virtio_softc *sc);
+void dev_err(dev_info_t *dip, int ce, char *fmt, ...);
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */

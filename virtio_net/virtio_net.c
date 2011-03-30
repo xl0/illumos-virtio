@@ -24,6 +24,32 @@
  * Use is subject to license terms.
  */
 
+/* Based on the NetBSD virtio driver by Minoura Makoto. */
+/*
+ * Copyright (c) 2010 Minoura Makoto.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <sys/types.h>
 #include <sys/errno.h>
 #include <sys/param.h>
@@ -47,15 +73,110 @@
 #include <sys/pattr.h>
 #include <sys/strsun.h>
 
+#include <sys/random.h>
+#include <sys/sysmacros.h>
+
+#include <sys/mac.h>
 #include <sys/mac_provider.h>
 #include <sys/mac_ether.h>
+
 
 #include "virtiovar.h"
 #include "virtioreg.h"
 
+/*
+ * if_vioifreg.h:
+ */
+
+/* Configuration registers */
+#define VIRTIO_NET_CONFIG_MAC		0 /* 8bit x 6byte */
+#define VIRTIO_NET_CONFIG_STATUS	6 /* 16bit */
+
+/* Feature bits */
+
+#define VIRTIO_NET_F_CSUM       (1 << 0) /* Host handles pkts w/ partial csum */
+#define VIRTIO_NET_F_GUEST_CSUM (1 << 1) /* Guest handles pkts w/ partial csum */
+#define VIRTIO_NET_F_MAC        (1 << 5) /* Host has given MAC address. */
+#define VIRTIO_NET_F_GSO        (1 << 6) /* Host handles pkts w/ any GSO type */
+#define VIRTIO_NET_F_GUEST_TSO4 (1 << 7) /* Guest can handle TSOv4 in. */
+#define VIRTIO_NET_F_GUEST_TSO6 (1 << 8) /* Guest can handle TSOv6 in. */
+#define VIRTIO_NET_F_GUEST_ECN  (1 << 9) /* Guest can handle TSO[6] w/ ECN in. */
+#define VIRTIO_NET_F_GUEST_UFO  (1 << 10) /* Guest can handle UFO in. */
+#define VIRTIO_NET_F_HOST_TSO4  (1 << 11) /* Host can handle TSOv4 in. */
+#define VIRTIO_NET_F_HOST_TSO6  (1 << 12) /* Host can handle TSOv6 in. */
+#define VIRTIO_NET_F_HOST_ECN   (1 << 13) /* Host can handle TSO[6] w/ ECN in. */
+#define VIRTIO_NET_F_HOST_UFO   (1 << 14) /* Host can handle UFO in. */
+#define VIRTIO_NET_F_MRG_RXBUF  (1 << 15) /* Host can merge receive buffers. */
+#define VIRTIO_NET_F_STATUS     (1 << 16) /* virtio_net_config.status available */
+#define VIRTIO_NET_F_CTRL_VQ    (1 << 17) /* Control channel available */
+#define VIRTIO_NET_F_CTRL_RX    (1 << 18) /* Control channel RX mode support */
+#define VIRTIO_NET_F_CTRL_VLAN  (1 << 19)       /* Control channel VLAN filtering */
+#define VIRTIO_NET_F_CTRL_RX_EXTRA (1 << 20) /* Extra RX mode control support */
+
+/* Status */
+#define VIRTIO_NET_S_LINK_UP	1
+
+/* Packet header structure */
+struct virtio_net_hdr {
+	uint8_t		flags;
+	uint8_t		gso_type;
+	uint16_t	hdr_len;
+	uint16_t	gso_size;
+	uint16_t	csum_start;
+	uint16_t	csum_offset;
+#if 0
+	uint16_t	num_buffers; /* if VIRTIO_NET_F_MRG_RXBUF enabled */
+#endif
+} __packed;
+
+#define VIRTIO_NET_HDR_F_NEEDS_CSUM	1 /* flags */
+#define VIRTIO_NET_HDR_GSO_NONE		0 /* gso_type */
+#define VIRTIO_NET_HDR_GSO_TCPV4	1 /* gso_type */
+#define VIRTIO_NET_HDR_GSO_UDP		3 /* gso_type */
+#define VIRTIO_NET_HDR_GSO_TCPV6	4 /* gso_type */
+#define VIRTIO_NET_HDR_GSO_ECN		0x80 /* gso_type, |'ed */
+
+#define VIRTIO_NET_MAX_GSO_LEN		(65536+ETHER_HDR_LEN)
+
+/* Control virtqueue */
+struct virtio_net_ctrl_cmd {
+	uint8_t	class;
+	uint8_t	command;
+} __packed;
+#define VIRTIO_NET_CTRL_RX		0
+# define VIRTIO_NET_CTRL_RX_PROMISC	0
+# define VIRTIO_NET_CTRL_RX_ALLMULTI	1
+
+#define VIRTIO_NET_CTRL_MAC		1
+# define VIRTIO_NET_CTRL_MAC_TABLE_SET	0
+
+#define VIRTIO_NET_CTRL_VLAN		2
+# define VIRTIO_NET_CTRL_VLAN_ADD	0
+# define VIRTIO_NET_CTRL_VLAN_DEL	1
+
+struct virtio_net_ctrl_status {
+	uint8_t	ack;
+} __packed;
+#define VIRTIO_NET_OK			0
+#define VIRTIO_NET_ERR			1
+
+struct virtio_net_ctrl_rx {
+	uint8_t	onoff;
+} __packed;
+
+struct virtio_net_ctrl_mac_tbl {
+	uint32_t nentries;
+	uint8_t macs[][ETHERADDRL];
+} __packed;
+
+struct virtio_net_ctrl_vlan {
+	uint16_t id;
+} __packed;
+
 static int virtio_net_attach(dev_info_t *, ddi_attach_cmd_t);
 static int virtio_net_detach(dev_info_t *, ddi_detach_cmd_t);
 static int virtio_net_quiesce(dev_info_t *);
+
 
 DDI_DEFINE_STREAM_OPS(virtio_net_ops,
 	nulldev,		/* identify */
@@ -68,9 +189,8 @@ DDI_DEFINE_STREAM_OPS(virtio_net_ops,
 	NULL,			/* power */
 	virtio_net_quiesce	/* quiesce */
 );
-/*
- * This is the string displayed by modinfo, etc.
- */
+
+
 static char virtio_net_ident[] = "VirtIO ethernet driver";
 
 /* Standard Module linkage initialization for a Streams driver */
@@ -88,14 +208,70 @@ static struct modlinkage modlinkage = {
 
 ddi_device_acc_attr_t virtio_net_attr = {
 	DDI_DEVICE_ATTR_V0,
+	DDI_STRUCTURE_LE_ACC,
 	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
 };
 
-typedef struct virtio_net {
-	struct virtio_softc	sc;
-} virtio_net_t;
+/*
+struct vioif_softc {
+	struct virtio_softc sc;
+	mac_handle_t mac_handle;
+	uint8_t mac_address[ETHERADDRL];
+};
+*/
 
+struct vioif_softc {
+	dev_info_t		*sc_dev; /* mirrors virtio_softc->sc_dev */
+	struct virtio_softc	sc_virtio;
+
+	mac_handle_t sc_mac_handle;
+	mac_register_t *sc_macp;
+
+	int			sc_nvqs; /* set by the user */ 
+	struct virtqueue	sc_vq[3];
+
+	uint8_t			sc_mac[ETHERADDRL];
+//	struct ethercom		sc_ethercom;
+//	uint32_t		sc_features;
+	short			sc_ifflags;
+
+	/* bus_dmamem */
+//	bus_dma_segment_t	sc_hdr_segs[1];
+//	struct virtio_net_hdr	*sc_hdrs;
+#define sc_rx_hdrs	sc_hdrs
+//	struct virtio_net_hdr	*sc_tx_hdrs;
+//	struct virtio_net_ctrl_cmd *sc_ctrl_cmd;
+//	struct virtio_net_ctrl_status *sc_ctrl_status;
+//	struct virtio_net_ctrl_rx *sc_ctrl_rx;
+//	struct virtio_net_ctrl_mac_tbl *sc_ctrl_mac_tbl_uc;
+//	struct virtio_net_ctrl_mac_tbl *sc_ctrl_mac_tbl_mc;
+
+	/* kmem */
+//	bus_dmamap_t		*sc_arrays;
+#define sc_rxhdr_dmamaps sc_arrays
+//	bus_dmamap_t		*sc_txhdr_dmamaps;
+//	bus_dmamap_t		*sc_rx_dmamaps;
+//	bus_dmamap_t		*sc_tx_dmamaps;
+//	struct mbuf		**sc_rx_mbufs;
+//	struct mbuf		**sc_tx_mbufs;
+
+//	bus_dmamap_t		sc_ctrl_cmd_dmamap;
+//	bus_dmamap_t		sc_ctrl_status_dmamap;
+//	bus_dmamap_t		sc_ctrl_rx_dmamap;
+//	bus_dmamap_t		sc_ctrl_tbl_uc_dmamap;
+//	bus_dmamap_t		sc_ctrl_tbl_mc_dmamap;
+
+	void			*sc_rx_softint;
+
+//	enum {
+//		FREE, INUSE, DONE
+//	}			sc_ctrl_inuse;
+//	kcondvar_t		sc_ctrl_wait;
+	kmutex_t		sc_ctrl_wait_lock;
+};
+#define VIRTIO_NET_TX_MAXNSEGS		(16) /* XXX */
+#define VIRTIO_NET_CTRL_MAC_MAXENTRIES	(64) /* XXX */
 /*
  * _init
  *
@@ -105,6 +281,7 @@ int
 _init(void)
 {
 	int ret = 0;
+	TRACE;
 
 	mac_init_ops(&virtio_net_ops, "virtio_net");
 	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
@@ -125,6 +302,7 @@ int
 _fini(void)
 {
 	int ret;
+	TRACE;
 
 	ret = mod_remove(&modlinkage);
 	if (ret == DDI_SUCCESS) {
@@ -142,7 +320,603 @@ _fini(void)
 int
 _info(struct modinfo *pModinfo)
 {
+	TRACE;
 	return (mod_info(&modlinkage, pModinfo));
+}
+
+static void 
+virtio_net_link_up(struct vioif_softc *sc)
+{
+	uint16_t tmp;
+
+	tmp = virtio_read_device_config_2(&sc->sc_virtio,
+		VIRTIO_NET_CONFIG_STATUS);
+
+	tmp |= VIRTIO_NET_S_LINK_UP;
+
+	virtio_write_device_config_2(&sc->sc_virtio,
+		VIRTIO_NET_CONFIG_STATUS, tmp);
+}
+
+static void 
+virtio_net_link_down(struct vioif_softc *sc)
+{
+	uint16_t tmp;
+
+	tmp = virtio_read_device_config_2(&sc->sc_virtio,
+		VIRTIO_NET_CONFIG_STATUS);
+
+	tmp &= ~(VIRTIO_NET_S_LINK_UP);
+
+	virtio_write_device_config_2(&sc->sc_virtio,
+		VIRTIO_NET_CONFIG_STATUS, tmp);
+}
+
+int
+virtio_net_quiesce(dev_info_t *dip)
+{
+	TRACE;
+	return DDI_FAILURE;
+#if 0
+
+	afe_t	*afep;
+
+	if ((afep = ddi_get_driver_private(dip)) == NULL) {
+		return (DDI_FAILURE);
+	}
+
+	SETBIT(afep, CSR_PAR, PAR_RESET);
+	/*
+	 * At 66 MHz it is 16 nsec per access or more (always more)
+	 * So we need 3,333 times to retry for 50 usec.  We just
+	 * round up to 5000 times.  Unless the hardware is horked,
+	 * it will always terminate *well* before that anyway.
+	 */
+	for (int i = 0; i < 5000; i++) {
+		if ((GETCSR(afep, CSR_PAR) & PAR_RESET) == 0) {
+			return (DDI_SUCCESS);
+		}
+	}
+
+	/* hardware didn't quiesce - force a full reboot (PCI reset) */
+	return (DDI_FAILURE);
+#endif
+}
+
+int
+virtio_net_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
+{
+	TRACE;
+	return DDI_FAILURE;
+
+#if 0
+	afe_t		*afep = arg;
+	int		index;
+	uint32_t	crc;
+	uint32_t	bit;
+	uint32_t	newval, oldval;
+
+	CRC32(crc, macaddr, ETHERADDRL, -1U, crc32_table);
+	crc %= AFE_MCHASH;
+
+	/* bit within a 32-bit word */
+	index = crc / 32;
+	bit = (1 << (crc % 32));
+
+	mutex_enter(&afep->afe_intrlock);
+	mutex_enter(&afep->afe_xmtlock);
+	newval = oldval = afep->afe_mctab[index];
+
+	if (add) {
+		afep->afe_mccount[crc]++;
+		if (afep->afe_mccount[crc] == 1)
+			newval |= bit;
+	} else {
+		afep->afe_mccount[crc]--;
+		if (afep->afe_mccount[crc] == 0)
+			newval &= ~bit;
+	}
+	if (newval != oldval) {
+		afep->afe_mctab[index] = newval;
+		afe_setrxfilt(afep);
+	}
+
+	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&afep->afe_intrlock);
+
+	return (0);
+#endif
+}
+
+int
+virtio_net_promisc(void *arg, boolean_t on)
+{
+	TRACE;
+	return DDI_FAILURE;
+#if 0
+	afe_t		*afep = arg;
+
+	/* exclusive access to the card while we reprogram it */
+	mutex_enter(&afep->afe_intrlock);
+	mutex_enter(&afep->afe_xmtlock);
+	/* save current promiscuous mode state for replay in resume */
+	afep->afe_promisc = on;
+
+	afe_setrxfilt(afep);
+	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&afep->afe_intrlock);
+
+	return (0);
+#endif
+}
+
+int
+virtio_net_unicst(void *arg, const uint8_t *macaddr)
+{
+	TRACE;
+	return DDI_FAILURE;
+#if 0
+	afe_t		*afep = arg;
+
+	/* exclusive access to the card while we reprogram it */
+	mutex_enter(&afep->afe_intrlock);
+	mutex_enter(&afep->afe_xmtlock);
+
+	bcopy(macaddr, afep->afe_curraddr, ETHERADDRL);
+	afe_setrxfilt(afep);
+
+	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&afep->afe_intrlock);
+
+	return (0);
+#endif
+}
+
+mblk_t *
+virtio_net_tx(void *arg, mblk_t *mp)
+{
+	TRACE;
+	return NULL;
+#if 0
+	afe_t	*afep = arg;
+	mblk_t	*nmp;
+
+	mutex_enter(&afep->afe_xmtlock);
+
+	if (afep->afe_flags & AFE_SUSPENDED) {
+		while ((nmp = mp) != NULL) {
+			afep->afe_carrier_errors++;
+			mp = mp->b_next;
+			freemsg(nmp);
+		}
+		mutex_exit(&afep->afe_xmtlock);
+		return (NULL);
+	}
+
+	while (mp != NULL) {
+		nmp = mp->b_next;
+		mp->b_next = NULL;
+
+		if (!afe_send(afep, mp)) {
+			mp->b_next = nmp;
+			break;
+		}
+		mp = nmp;
+	}
+	mutex_exit(&afep->afe_xmtlock);
+
+	return (mp);
+#endif
+}
+
+int
+virtio_net_start(void *arg)
+{
+	struct vioif_softc *sc = arg;
+
+	TRACE;
+
+	virtio_net_link_up(sc);
+
+	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
+
+	/* On start, pre-fill the rx queue. */
+
+
+	return (DDI_SUCCESS);
+#if 0
+	afe_t	*afep = arg;
+
+	/* grab exclusive access to the card */
+	mutex_enter(&afep->afe_intrlock);
+	mutex_enter(&afep->afe_xmtlock);
+
+	afe_startall(afep);
+	afep->afe_flags |= AFE_RUNNING;
+
+	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&afep->afe_intrlock);
+
+	mii_start(afep->afe_mii);
+
+	return (0);
+#endif
+}
+
+void
+virtio_net_stop(void *arg)
+{
+	struct vioif_softc *sc = arg;
+	TRACE;
+	
+	virtio_net_link_down(sc);
+	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
+	return;
+#if 0
+	afe_t	*afep = arg;
+
+	mii_stop(afep->afe_mii);
+
+	/* exclusive access to the hardware! */
+	mutex_enter(&afep->afe_intrlock);
+	mutex_enter(&afep->afe_xmtlock);
+
+	afe_stopall(afep);
+	afep->afe_flags &= ~AFE_RUNNING;
+
+	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&afep->afe_intrlock);
+#endif
+}
+
+
+static int
+virtio_net_stat(void *arg, uint_t stat, uint64_t *val)
+{
+	TRACE;
+	cmn_err(CE_NOTE, "stat = %x\n", stat);
+	switch (stat) {
+		case MAC_STAT_IFSPEED:
+			/* 1 Gbit */
+			*val = 1000000000ULL;
+			break;
+		case ETHER_STAT_LINK_DUPLEX:
+			*val = LINK_DUPLEX_FULL;
+			break;
+
+		default:
+			return (ENOTSUP);
+	}
+
+	cmn_err(CE_NOTE, "val = %llu\n", *val);
+
+	return (DDI_SUCCESS);
+
+#if 0
+	afe_t	*afep = arg;
+
+	mutex_enter(&afep->afe_xmtlock);
+	if ((afep->afe_flags & (AFE_RUNNING|AFE_SUSPENDED)) == AFE_RUNNING)
+		afe_reclaim(afep);
+	mutex_exit(&afep->afe_xmtlock);
+
+	if (mii_m_getstat(afep->afe_mii, stat, val) == 0) {
+		return (0);
+	}
+	switch (stat) {
+	case MAC_STAT_MULTIRCV:
+		*val = afep->afe_multircv;
+		break;
+
+	case MAC_STAT_BRDCSTRCV:
+		*val = afep->afe_brdcstrcv;
+		break;
+
+	case MAC_STAT_MULTIXMT:
+		*val = afep->afe_multixmt;
+		break;
+
+	case MAC_STAT_BRDCSTXMT:
+		*val = afep->afe_brdcstxmt;
+		break;
+
+	case MAC_STAT_IPACKETS:
+		*val = afep->afe_ipackets;
+		break;
+
+	case MAC_STAT_RBYTES:
+		*val = afep->afe_rbytes;
+		break;
+
+	case MAC_STAT_OPACKETS:
+		*val = afep->afe_opackets;
+		break;
+
+	case MAC_STAT_OBYTES:
+		*val = afep->afe_obytes;
+		break;
+
+	case MAC_STAT_NORCVBUF:
+		*val = afep->afe_norcvbuf;
+		break;
+
+	case MAC_STAT_NOXMTBUF:
+		*val = 0;
+		break;
+
+	case MAC_STAT_COLLISIONS:
+		*val = afep->afe_collisions;
+		break;
+
+	case MAC_STAT_IERRORS:
+		*val = afep->afe_errrcv;
+		break;
+
+	case MAC_STAT_OERRORS:
+		*val = afep->afe_errxmt;
+		break;
+
+	case ETHER_STAT_ALIGN_ERRORS:
+		*val = afep->afe_align_errors;
+		break;
+
+	case ETHER_STAT_FCS_ERRORS:
+		*val = afep->afe_fcs_errors;
+		break;
+
+	case ETHER_STAT_SQE_ERRORS:
+		*val = afep->afe_sqe_errors;
+		break;
+
+	case ETHER_STAT_DEFER_XMTS:
+		*val = afep->afe_defer_xmts;
+		break;
+
+	case ETHER_STAT_FIRST_COLLISIONS:
+		*val = afep->afe_first_collisions;
+		break;
+
+	case ETHER_STAT_MULTI_COLLISIONS:
+		*val = afep->afe_multi_collisions;
+		break;
+
+	case ETHER_STAT_TX_LATE_COLLISIONS:
+		*val = afep->afe_tx_late_collisions;
+		break;
+
+	case ETHER_STAT_EX_COLLISIONS:
+		*val = afep->afe_ex_collisions;
+		break;
+
+	case ETHER_STAT_MACXMT_ERRORS:
+		*val = afep->afe_macxmt_errors;
+		break;
+
+	case ETHER_STAT_CARRIER_ERRORS:
+		*val = afep->afe_carrier_errors;
+		break;
+
+	case ETHER_STAT_TOOLONG_ERRORS:
+		*val = afep->afe_toolong_errors;
+		break;
+
+	case ETHER_STAT_MACRCV_ERRORS:
+		*val = afep->afe_macrcv_errors;
+		break;
+
+	case MAC_STAT_OVERFLOWS:
+		*val = afep->afe_overflow;
+		break;
+
+	case MAC_STAT_UNDERFLOWS:
+		*val = afep->afe_underflow;
+		break;
+
+	case ETHER_STAT_TOOSHORT_ERRORS:
+		*val = afep->afe_runt;
+		break;
+
+	case ETHER_STAT_JABBER_ERRORS:
+		*val = afep->afe_jabber;
+		break;
+
+	default:
+		return (ENOTSUP);
+	}
+	return (0);
+#endif
+}
+
+
+
+static mac_callbacks_t afe_m_callbacks = {
+	/*MC_IOCTL | MC_SETPROP | MC_GETPROP | MC_PROPINFO*/ 0,
+	virtio_net_stat,
+	virtio_net_start,
+	virtio_net_stop,
+	virtio_net_promisc,
+	virtio_net_multicst,
+	virtio_net_unicst,
+	virtio_net_tx,
+	NULL,
+	/*afe_m_ioctl*/ NULL,	/* mc_ioctl */
+	NULL,		/* mc_getcapab */
+	NULL,		/* mc_open */
+	NULL,		/* mc_close */
+	NULL, /* afe_m_setprop */
+	NULL, /* afe_m_getprop */
+	NULL, /* afe_m_propinfo */
+};
+
+static int
+virtio_net_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
+{
+	uint16_t vendor, device, revision, subdevice, subvendor;
+
+	vendor = pci_config_get16(pconf, PCI_CONF_VENID);
+	device = pci_config_get16(pconf, PCI_CONF_DEVID);
+	revision = pci_config_get8(pconf, PCI_CONF_REVID);
+	subvendor = pci_config_get16(pconf, PCI_CONF_SUBVENID);
+	subdevice = pci_config_get16(pconf, PCI_CONF_SUBSYSID);
+
+	dev_err(devinfo, CE_NOTE, "match: %x:%x, rev %d, sub: %x:%x",
+		vendor, device, revision, subvendor, subdevice);
+
+	if (vendor != PCI_VENDOR_QUMRANET) {
+		dev_err(devinfo, CE_WARN,
+			"Vendor ID does not match: %x, expected %x",
+			vendor, PCI_VENDOR_QUMRANET);
+		return (DDI_FAILURE);
+	}
+
+	if (device < PCI_DEV_VIRTIO_MIN || device > PCI_DEV_VIRTIO_MAX) {
+		dev_err(devinfo, CE_WARN,
+			"Device ID is does not match: %x, expected"
+			"between %x and %x", device, PCI_DEV_VIRTIO_MIN,
+			PCI_DEV_VIRTIO_MAX);
+		return (DDI_FAILURE);
+	}
+
+	if (revision != VIRTIO_PCI_ABI_VERSION) {
+		dev_err(devinfo, CE_WARN,
+			"Device revision does not match: %x, expected %x",
+			revision, VIRTIO_PCI_ABI_VERSION);
+		return (DDI_FAILURE);
+	}
+
+	if (subvendor != PCI_VENDOR_QUMRANET) {
+		dev_err(devinfo, CE_WARN,
+			"Sub-vendor ID does not match: %x, expected %x",
+			vendor, PCI_VENDOR_QUMRANET);
+		return (DDI_FAILURE);
+	}
+
+	if (subdevice != PCI_PRODUCT_VIRTIO_NETWORK) {
+		dev_err(devinfo, CE_NOTE,
+			"Subsystem ID does not match: %x, expected %x",
+			vendor, PCI_VENDOR_QUMRANET);
+		dev_err(devinfo, CE_NOTE,
+			"This is a virtio device, but not virtio-net, skipping");
+
+		return (DDI_FAILURE);
+	}
+
+	dev_err(devinfo, CE_NOTE, "Matched successfully");
+
+	return (DDI_SUCCESS);
+}
+
+static void
+virtio_net_show_features(struct vioif_softc *sc)
+{
+	virtio_show_features(&sc->sc_virtio);
+
+	dev_err(sc->sc_dev, CE_NOTE, "Virtio Net features:");
+
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CSUM)
+		dev_err(sc->sc_dev, CE_NOTE, "CSUM");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_CSUM)
+		dev_err(sc->sc_dev, CE_NOTE, "GUEST_CSUM");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MAC)
+		dev_err(sc->sc_dev, CE_NOTE, "MAC");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GSO)
+		dev_err(sc->sc_dev, CE_NOTE, "GSO");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_TSO4)
+		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO4");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_TSO6)
+		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO6");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_ECN)
+		dev_err(sc->sc_dev, CE_NOTE, "GUEST_ECN");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_UFO)
+		dev_err(sc->sc_dev, CE_NOTE, "GUEST_UFO");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_TSO4)
+		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO4");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_TSO6)
+		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO6");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_ECN)
+		dev_err(sc->sc_dev, CE_NOTE, "HOST_ECN");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_UFO)
+		dev_err(sc->sc_dev, CE_NOTE, "HOST_UFO");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MRG_RXBUF)
+		dev_err(sc->sc_dev, CE_NOTE, "MRG_RXBUF");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS)
+		dev_err(sc->sc_dev, CE_NOTE, "STATUS");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_VQ)
+		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VQ");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_RX)
+		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_VLAN)
+		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VLAN");
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_RX_EXTRA)
+		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX_EXTRA");
+}
+
+/*
+ * Find out which features are supported by the device and
+ * chose which ones we wish to use.
+ */
+static int
+virtio_net_dev_features(struct vioif_softc *sc)
+{
+	virtio_negotiate_features(&sc->sc_virtio,
+			VIRTIO_NET_F_MAC |
+			VIRTIO_NET_F_STATUS |
+//			VIRTIO_NET_F_CTRL_VQ |
+			VIRTIO_NET_F_CTRL_RX |
+			VIRTIO_F_NOTIFY_ON_EMPTY |
+			VRING_DESC_F_INDIRECT);
+
+#if 0
+	if (!(sc->sc.features & VIRTIO_RING_F_INDIRECT_DESC)) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Virtual device does not support indirect descriptors - host too old");
+		return (DDI_FAILURE);
+	}
+#endif
+
+	virtio_net_show_features(sc);
+
+	return (DDI_SUCCESS);
+}
+
+static void
+virtio_net_set_mac(struct vioif_softc *sc)
+{
+	int i;
+
+	for (i = 0; i < ETHERADDRL; i++) {
+		virtio_write_device_config_1(&sc->sc_virtio,
+			VIRTIO_NET_CONFIG_MAC + i, sc->sc_mac[i]);
+	}
+}
+
+/* Get the mac address out of the hardware, or make up one. */
+static void
+virtio_net_get_mac(struct vioif_softc *sc)
+{
+	int i;
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MAC) {
+		for (i = 0; i < ETHERADDRL; i++) {
+			sc->sc_mac[i] = virtio_read_device_config_1(
+				&sc->sc_virtio,
+				VIRTIO_NET_CONFIG_MAC + i);
+		}
+		dev_err(sc->sc_dev, CE_NOTE, "Got MAC address from host: %s",
+			ether_sprintf((struct ether_addr *) sc->sc_mac));
+	} else {
+		/* Get a few random bytes */
+		random_get_pseudo_bytes(sc->sc_mac, ETHERADDRL);
+		/* Make sure it's a unicast MAC */
+		sc->sc_mac[0] &= ~1;
+		/* Set the "locally administered" bit */
+		sc->sc_mac[1] |= 2;
+
+		virtio_net_set_mac(sc);
+
+		dev_err(sc->sc_dev, CE_NOTE, "Generated a random Got MAC address: %s",
+			ether_sprintf((struct ether_addr *) sc->sc_mac));
+	}
+	
 }
 
 /*
@@ -153,8 +927,11 @@ _info(struct modinfo *pModinfo)
 static int
 virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
-	int ret = DDI_SUCCESS, instance, type, intr_types;
-	virtio_net_t *vnet;
+	int ret, instance, type, intr_types;
+	struct vioif_softc *sc;
+	mac_register_t *macp;
+	ddi_acc_handle_t pci_conf;
+	TRACE;
 
 	instance = ddi_get_instance(devinfo);
 
@@ -164,59 +941,136 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	case DDI_RESUME:
 	case DDI_PM_RESUME:
-		cmn_err(CE_WARN, "resume unsupported yet");
+		dev_err(devinfo, CE_WARN, "resume unsupported yet");
 		ret = DDI_FAILURE;
-		goto _exit0;
+		goto exit;
 
 	default:
-		cmn_err(CE_WARN, "cmd 0x%x unrecognized", cmd);
+		dev_err(devinfo, CE_WARN, "cmd 0x%x unrecognized", cmd);
 		ret = DDI_FAILURE;
-		goto _exit0;
+		goto exit;
 	}
 
-	vnet = kmem_zalloc(sizeof (virtio_net_t), KM_SLEEP);
-	ddi_set_driver_private(devinfo, vnet);
-	vnet->sc.devinfo = devinfo;
+	sc = kmem_zalloc(sizeof (struct vioif_softc), KM_SLEEP);
+	ddi_set_driver_private(devinfo, sc);
+	/* Duplicate for faster access / less typing */
+	sc->sc_dev = devinfo;
+	sc->sc_virtio.sc_dev = devinfo;
+
+	ret = pci_config_setup(devinfo, &pci_conf);
+	if (ret) {
+		dev_err(devinfo, CE_WARN, "unable to setup PCI config handle");
+		goto exit_pci_conf;
+
+	}
+
+	ret = virtio_net_match(devinfo, pci_conf);
+	if (ret)
+		goto exit_match;
+
+	pci_config_teardown(&pci_conf);
 
 	/* Determine which types of interrupts supported */
 	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
 	if ((ret != DDI_SUCCESS) || (!(intr_types & DDI_INTR_TYPE_FIXED))) {
-		cmn_err(CE_WARN, "fixed type interrupt is not supported");
-		goto _exit1;
+		dev_err(devinfo, CE_WARN, "fixed type interrupt is not supported");
+		goto exit_inttype;
 	}
 
 	/* map BAR0 */
-	ret = ddi_regs_map_setup(devinfo, 1, (caddr_t *)&vnet->sc.bar0,
-	    (offset_t)0, (offset_t)0, &virtio_net_attr, &vnet->sc.bar0_handle);
+	ret = ddi_regs_map_setup(devinfo, 1, (caddr_t *)&sc->sc_virtio.sc_io_addr,
+		0, 0, &virtio_net_attr, &sc->sc_virtio.sc_ioh);
 	if (ret != DDI_SUCCESS) {
-		cmn_err(CE_WARN, "unable to map bar0: [%d]", ret);
-		goto _exit1;
+		dev_err(devinfo, CE_WARN, "unable to map bar0: [%d]", ret);
+		goto exit_map;
 	}
 
-	/* reset to a known state */
-	virtio_set_status(&vnet->sc, 0);
-	virtio_set_status(&vnet->sc, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
-	virtio_set_status(&vnet->sc, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
+	sc->sc_virtio.sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
 
-	ret = pci_config_setup(devinfo, &vnet->sc.cfg_handle);
-	if (ret != DDI_SUCCESS) {
-		cmn_err(CE_WARN, "unable to map pci config space: [%d]", ret);
-		goto _exit2;
+	virtio_reset(&sc->sc_virtio);
+	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
+	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
+
+	ret = virtio_net_dev_features(sc);
+	if (ret)
+		goto exit_features;
+
+	virtio_net_get_mac(sc);
+
+#define MCLBYTES 2048
+	ret = virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[0], 0, 2, "rx");
+	if (ret) {
+		goto exit_alloc1;
 	}
 
-	/* detect and print virtio type to the log */
-	virtio_report_dev(&vnet->sc);
+	sc->sc_nvqs = 1;
+//	sc->sc_virtio_vq[0].vq_done = vioif_rx_vq_done;
 
-	ddi_report_dev(devinfo);
-	instance = ddi_get_instance(devinfo);
+	if (virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[1], 1,
+		VIRTIO_NET_TX_MAXNSEGS + 1, "tx") != 0) {
+		goto exit_alloc2;
+	}
+	sc->sc_nvqs = 2;
+//	sc->sc_virtio_vq[1].vq_done = vioif_tx_vq_done;
+	virtio_start_vq_intr(&sc->sc_vq[0]);
+	virtio_stop_vq_intr(&sc->sc_vq[1]); /* not urgent; do it later */
+/*
+	if ((features & VIRTIO_NET_F_CTRL_VQ)
+	    && (features & VIRTIO_NET_F_CTRL_RX)) {
+		if (virtio_alloc_vq(vsc, &sc->sc_vq[2], 2,
+				    NBPG, 1, "control") == 0) {
+			sc->sc_virtio_vq[2].vq_done = vioif_ctrl_vq_done;
+			cv_init(&sc->sc_virtio_ctrl_wait, "ctrl_vq");
+			mutex_init(&sc->sc_virtio_ctrl_wait_lock,
+				   MUTEX_DEFAULT, IPL_NET);
+			sc->sc_virtio_ctrl_inuse = FREE;
+			virtio_start_vq_intr(vsc, &sc->sc_virtio_vq[2]);
+			vsc->sc_virtio_nvqs = 3;
+		}
+	}
+*/
+	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
+		dev_err(devinfo, CE_WARN, "Failed to alocate a mac_register");
+		goto exit_macalloc;
+	}
+
+	macp->m_type_ident = MAC_PLUGIN_IDENT_ETHER;
+	macp->m_driver = sc;
+	macp->m_dip = devinfo;
+	macp->m_src_addr = sc->sc_mac;
+	macp->m_callbacks = &afe_m_callbacks;
+	macp->m_min_sdu = 0;
+	macp->m_max_sdu = ETHERMTU;
+	macp->m_margin = VLAN_TAGSZ;
+
+	ret = mac_register(macp, &sc->sc_mac_handle);
+	if (ret) {
+		dev_err(devinfo, CE_WARN, "Failed to register the device");
+		goto exit_register;
+	}
+
+	sc->sc_macp = macp;
+
+	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 	return (DDI_SUCCESS);
 
-_exit2:
-	ddi_regs_map_free(&vnet->sc.bar0_handle);
-_exit1:
-	kmem_free(vnet, sizeof (virtio_net_t));
-_exit0:
+exit_register:
+	mac_free(macp);
+exit_macalloc:
+	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[1]);
+exit_alloc2:
+	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[0]);
+exit_alloc1:
+exit_features:
+	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
+	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
+exit_map:
+exit_inttype:
+exit_match:
+exit_pci_conf:
+	kmem_free(sc, sizeof (struct vioif_softc));
+exit:
 	return (ret);
 }
 
@@ -230,16 +1084,19 @@ _exit0:
  * This function returns DDI_SUCCESS on success, or DDI_FAILURE on failure.
  * DDI_FAILURE indicates an error condition and should almost never happen.
  */
+#if 0
 static int
 virtio_net_quiesce(dev_info_t *devinfo)
 {
-	virtio_net_t *dp =
-	    (virtio_net_t *)ddi_get_driver_private(devinfo);
+	struct vioif_softc *dp = ddi_get_driver_private(devinfo);
+	TRACE;
 
 	/* FIXME: not implemented */
 
 	return (DDI_FAILURE);
 }
+#endif
+
 
 /*
  * virtio_net_detach
@@ -249,9 +1106,9 @@ virtio_net_quiesce(dev_info_t *devinfo)
 static int
 virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 {
-	virtio_net_t *vnet =
-	    (virtio_net_t *)ddi_get_driver_private(devinfo);
+	struct vioif_softc *sc = ddi_get_driver_private(devinfo);
 
+	TRACE;
 	switch (cmd) {
 	case DDI_DETACH:
 		break;
@@ -265,10 +1122,16 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 		return (DDI_FAILURE);
 	}
 
-	ddi_remove_minor_node(vnet->sc.devinfo, NULL);
-	pci_config_teardown(&vnet->sc.cfg_handle);
-	ddi_regs_map_free(&vnet->sc.bar0_handle);
-	kmem_free(vnet, sizeof (virtio_net_t));
+	if (mac_unregister(sc->sc_mac_handle)) {
+		return (DDI_FAILURE);
+	}
+
+	mac_free(sc->sc_macp);
+	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[1]);
+	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[0]);
+	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
+//	pci_config_teardown(&sc->sc_virtio.pci_conf);
+	kmem_free(sc, sizeof (struct vioif_softc));
 
 	return (DDI_SUCCESS);
 }
