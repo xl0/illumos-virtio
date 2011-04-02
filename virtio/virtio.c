@@ -341,6 +341,7 @@ vq_sync_uring(struct virtio_softc *sc, struct virtqueue *vq, int ops)
 #endif
 }
 
+#if 0
 static inline void
 vq_sync_indirect(struct virtio_softc *sc, struct virtqueue *vq, int slot,
 		     int ops)
@@ -354,6 +355,7 @@ vq_sync_indirect(struct virtio_softc *sc, struct virtqueue *vq, int slot,
 			ops);
 #endif
 }
+#endif
 
 /*
  * Can be used as sc_intrhand.
@@ -415,7 +417,7 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 	int vq_size = vq->vq_num;
 
 	memset(vq->vq_vaddr, 0, vq->vq_bytesize);
-
+#if 0
 	/* build the indirect descriptor chain */
 	if (vq->vq_indirect != NULL) {
 		struct vring_desc *vd;
@@ -427,6 +429,7 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 				vd[j].next = j + 1;
 		}
 	}
+#endif
 
 	/* free slot management */
 	list_create(&vq->vq_freelist, sizeof(struct vq_entry),
@@ -483,7 +486,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		struct virtqueue *vq, int index, int maxnsegs,
 		const char *name)
 {
-	int vq_size, allocsize1, allocsize2, allocsize3, allocsize = 0;
+	int vq_size, allocsize1, allocsize2, allocsize = 0;
 	int rsegs, r;
 	unsigned int ncookies;
 	size_t len;
@@ -508,13 +511,15 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	/* allocsize2: used ring + pad */
 	allocsize2 = VIRTQUEUE_ALIGN(sizeof(uint16_t) * 2
 				     + sizeof(struct vring_used_elem) * vq_size);
+
+#if 0
 	/* allocsize3: indirect table */
 	if (sc->sc_indirect && maxnsegs >= MINSEG_INDIRECT)
 		allocsize3 = sizeof(struct vring_desc) * maxnsegs * vq_size;
 	else
 		allocsize3 = 0;
 	allocsize = allocsize1 + allocsize2 + allocsize3;
-
+#endif
 
 	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_vq_dma_attr,
 		DDI_DMA_SLEEP, NULL, &vq->vq_dma_handle);
@@ -595,11 +600,13 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	vq->vq_avail = (void*)(((char*)vq->vq_desc) + vq->vq_availoffset);
 	vq->vq_usedoffset = allocsize1;
 	vq->vq_used = (void*)(((char*)vq->vq_desc) + vq->vq_usedoffset);
+#if 0
 	if (allocsize3 > 0) {
 		vq->vq_indirectoffset = allocsize1 + allocsize2;
 		vq->vq_indirect = (void*)(((char*)vq->vq_desc)
 					  + vq->vq_indirectoffset);
 	}
+#endif
 	vq->vq_bytesize = allocsize;
 	vq->vq_maxnsegs = maxnsegs;
 
@@ -617,11 +624,13 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	dev_err(sc->sc_dev, CE_NOTE,
 		   "allocated %u byte for virtqueue %d for %s, "
 		   "size %d\n", allocsize, index, name, vq_size);
+#if 0
 	if (allocsize3 > 0)
 		dev_err(sc->sc_dev, CE_NOTE,
 			   "using %d byte (%d entries) "
 			   "indirect descriptors\n",
 			   allocsize3, maxnsegs * vq_size);
+#endif
 	return 0;
 out_zalloc:
 	ddi_dma_unbind_handle(vq->vq_dma_handle);
@@ -768,12 +777,12 @@ int
 virtio_enqueue_reserve(struct virtio_softc *sc, struct virtqueue *vq,
 		       int slot, int nsegs)
 {
-	int indirect;
+//	int indirect;
 	struct vq_entry *qe1 = &vq->vq_entries[slot];
 
 	ASSERT(qe1->qe_next == -1);
 	ASSERT(1 <= nsegs && nsegs <= vq->vq_num);
-
+/*
 	if ((vq->vq_indirect != NULL) &&
 	    (nsegs >= MINSEG_INDIRECT) &&
 	    (nsegs <= vq->vq_maxnsegs))
@@ -781,7 +790,8 @@ virtio_enqueue_reserve(struct virtio_softc *sc, struct virtqueue *vq,
 	else
 		indirect = 0;
 	qe1->qe_indirect = indirect;
-
+*/
+#if 0
 	if (indirect) {
 		struct vring_desc *vd;
 		int i;
@@ -806,6 +816,8 @@ virtio_enqueue_reserve(struct virtio_softc *sc, struct virtqueue *vq,
 
 		return 0;
 	} else {
+#endif
+	{
 		struct vring_desc *vd;
 		struct vq_entry *qe;
 		int i, s;
