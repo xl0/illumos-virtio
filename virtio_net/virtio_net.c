@@ -221,6 +221,13 @@ struct vioif_softc {
 };
 */
 
+struct mbuf_desc {
+	ddi_dma_cookie_t	md_dma_cookie;
+	ddi_dma_handle_t	md_dma_handle;
+	ddi_acc_handle_t	md_dma_acch;
+	struct mbuf		*md_mbuf;
+};
+
 struct vioif_softc {
 	dev_info_t		*sc_dev; /* mirrors virtio_softc->sc_dev */
 	struct virtio_softc	sc_virtio;
@@ -236,11 +243,17 @@ struct vioif_softc {
 //	uint32_t		sc_features;
 	short			sc_ifflags;
 
+	ddi_dma_cookie_t	sc_hdr_dma_cookie;
+	ddi_dma_handle_t	sc_hdr_dma_handle;
+	ddi_acc_handle_t	sc_hdr_dma_acch;
 	/* bus_dmamem */
 //	bus_dma_segment_t	sc_hdr_segs[1];
-//	struct virtio_net_hdr	*sc_hdrs;
-#define sc_rx_hdrs	sc_hdrs
-//	struct virtio_net_hdr	*sc_tx_hdrs;
+	struct virtio_net_hdr	*sc_rx_hdrs;
+//#define sc_rx_hdrs	sc_hdrs
+	struct virtio_net_hdr	*sc_tx_hdrs;
+
+	struct mbuf_desc	*sc_rx_mbuf_descs;
+	struct mbuf_desc	*sc_tx_mbuf_descs;
 //	struct virtio_net_ctrl_cmd *sc_ctrl_cmd;
 //	struct virtio_net_ctrl_status *sc_ctrl_status;
 //	struct virtio_net_ctrl_rx *sc_ctrl_rx;
@@ -249,7 +262,7 @@ struct vioif_softc {
 
 	/* kmem */
 //	bus_dmamap_t		*sc_arrays;
-#define sc_rxhdr_dmamaps sc_arrays
+//#define sc_rxhdr_dmamaps sc_arrays
 //	bus_dmamap_t		*sc_txhdr_dmamaps;
 //	bus_dmamap_t		*sc_rx_dmamaps;
 //	bus_dmamap_t		*sc_tx_dmamaps;
@@ -262,7 +275,7 @@ struct vioif_softc {
 //	bus_dmamap_t		sc_ctrl_tbl_uc_dmamap;
 //	bus_dmamap_t		sc_ctrl_tbl_mc_dmamap;
 
-	void			*sc_rx_softint;
+//	void			*sc_rx_softint;
 
 //	enum {
 //		FREE, INUSE, DONE
@@ -324,32 +337,363 @@ _info(struct modinfo *pModinfo)
 	return (mod_info(&modlinkage, pModinfo));
 }
 
-static void 
-virtio_net_link_up(struct vioif_softc *sc)
+static link_state_t
+virtio_net_link_state(struct vioif_softc *sc)
 {
 	uint16_t tmp;
 
-	tmp = virtio_read_device_config_2(&sc->sc_virtio,
-		VIRTIO_NET_CONFIG_STATUS);
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS) {
+		if (virtio_read_device_config_2(&sc->sc_virtio,
+			VIRTIO_NET_CONFIG_STATUS) & VIRTIO_NET_S_LINK_UP) {
+			return (LINK_STATE_UP);
+		} else {
+			return (LINK_STATE_DOWN);
+		}
+	}
 
-	tmp |= VIRTIO_NET_S_LINK_UP;
+	return (LINK_STATE_UP);
 
-	virtio_write_device_config_2(&sc->sc_virtio,
-		VIRTIO_NET_CONFIG_STATUS, tmp);
 }
 
-static void 
-virtio_net_link_down(struct vioif_softc *sc)
+static ddi_dma_attr_t virtio_net_hdr_dma_attr = {
+	DMA_ATTR_V0,   /* Version number */
+	0,	       /* low address */
+	0xFFFFFFFF,    /* high address */
+	0xFFFFFFFF,    /* counter register max */
+	VIRTIO_PAGE_SIZE, /* page alignment */
+	0x3F,          /* burst sizes: 1 - 32 */
+	0x1,           /* minimum transfer size */
+	0xFFFFFFFF,    /* max transfer size */
+	0xFFFFFFFF,    /* address register max */
+	1,             /* no scatter-gather */
+	1,             /* device operates on bytes */
+	0,             /* attr flag: set to 0 */
+};
+
+static ddi_device_acc_attr_t virtio_net_hdr_devattr = {
+	DDI_DEVICE_ATTR_V0,
+	DDI_STRUCTURE_LE_ACC,
+	DDI_STRICTORDER_ACC
+};
+
+/* allocate memory */
+/*
+ * dma memory is used for:
+ *   sc_rx_hdrs[slot]:	 metadata array for recieved frames (READ)
+ *   sc_tx_hdrs[slot]:	 metadata array for frames to be sent (WRITE)
+ *   sc_ctrl_cmd:	 command to be sent via ctrl vq (WRITE)
+ *   sc_ctrl_status:	 return value for a command via ctrl vq (READ)
+ *   sc_ctrl_rx:	 parameter for a VIRTIO_NET_CTRL_RX class command
+ *			 (WRITE)
+ *   sc_ctrl_mac_tbl_uc: unicast MAC address filter for a VIRTIO_NET_CTRL_MAC
+ *			 class command (WRITE)
+ *   sc_ctrl_mac_tbl_mc: multicast MAC address filter for a VIRTIO_NET_CTRL_MAC
+ *			 class command (WRITE)
+ * sc_ctrl_* structures are allocated only one each; they are protected by
+ * sc_ctrl_inuse variable and sc_ctrl_wait condvar.
+ */
+/*
+ * dynamically allocated memory is used for:
+ *   sc_rxhdr_dmamaps[slot]:	bus_dmamap_t array for sc_rx_hdrs[slot]
+ *   sc_txhdr_dmamaps[slot]:	bus_dmamap_t array for sc_tx_hdrs[slot]
+ *   sc_rx_dmamaps[slot]:	bus_dmamap_t array for recieved payload
+ *   sc_tx_dmamaps[slot]:	bus_dmamap_t array for sent payload
+ *   sc_rx_mbufs[slot]:		mbuf pointer array for recieved frames
+ *   sc_tx_mbufs[slot]:		mbuf pointer array for sent frames
+ */
+static int
+virtio_net_alloc_mems(struct vioif_softc *sc)
 {
-	uint16_t tmp;
+	struct virtio_softc *vsc = &sc->sc_virtio;
+	int allocsize, allocsize2, r, rsegs, i;
+	void *vaddr;
+	size_t len;
+	unsigned int ncookies;
+	intptr_t p;
+	int rxqsize, txqsize;
 
-	tmp = virtio_read_device_config_2(&sc->sc_virtio,
-		VIRTIO_NET_CONFIG_STATUS);
+	TRACE;
 
-	tmp &= ~(VIRTIO_NET_S_LINK_UP);
+	rxqsize = sc->sc_vq[0].vq_num;
+	txqsize = sc->sc_vq[1].vq_num;
 
-	virtio_write_device_config_2(&sc->sc_virtio,
-		VIRTIO_NET_CONFIG_STATUS, tmp);
+	allocsize = sizeof(struct virtio_net_hdr) * rxqsize;
+	allocsize += sizeof(struct virtio_net_hdr) * txqsize;
+	if (vsc->sc_nvqs == 3) {
+		TRACE;
+		panic("Not implemented");
+#if 0
+		allocsize += sizeof(struct virtio_net_ctrl_cmd) * 1;
+		allocsize += sizeof(struct virtio_net_ctrl_status) * 1;
+		allocsize += sizeof(struct virtio_net_ctrl_rx) * 1;
+		allocsize += sizeof(struct virtio_net_ctrl_mac_tbl)
+			+ sizeof(struct virtio_net_ctrl_mac_tbl)
+			+ ETHERADDRL * VIRTIO_NET_CTRL_MAC_MAXENTRIES;
+#endif
+	}
+	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_hdr_dma_attr,
+		DDI_DMA_SLEEP, NULL, &sc->sc_hdr_dma_handle);
+	if (r) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to allocate dma handle for data headers");
+		goto out;
+	}
+
+	r = ddi_dma_mem_alloc(sc->sc_hdr_dma_handle, allocsize, &virtio_net_hdr_devattr,
+		DDI_DMA_CONSISTENT, DDI_DMA_SLEEP, NULL,
+		(caddr_t *)&sc->sc_rx_hdrs, &len, &sc->sc_hdr_dma_acch);
+	if (r) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to alocate dma memory for data headers");
+		goto out_mem;
+	}
+
+	r = ddi_dma_addr_bind_handle(sc->sc_hdr_dma_handle, NULL,
+		(caddr_t) sc->sc_rx_hdrs, allocsize, DDI_DMA_RDWR | DDI_DMA_CONSISTENT,
+		DDI_DMA_SLEEP, NULL, &sc->sc_hdr_dma_cookie, &ncookies);
+	if (r != DDI_DMA_MAPPED) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to bind dma memory for data headers");
+		goto out_bind;
+	}
+
+	/* We asked for a single segment */
+	ASSERT(ncookies == 1);
+#if 0
+	r = bus_dmamem_alloc(vsc->sc_dmat, allocsize, 0, 0,
+			     &sc->sc_hdr_segs[0], 1, &rsegs, BUS_DMA_NOWAIT);
+	if (r != 0) {
+		aprint_error_dev(sc->sc_dev,
+				 "DMA memory allocation failed, size %d, "
+				 "error code %d\n", allocsize, r);
+		goto err_none;
+	}
+	r = bus_dmamem_map(vsc->sc_dmat,
+			   &sc->sc_hdr_segs[0], 1, allocsize,
+			   &vaddr, BUS_DMA_NOWAIT);
+	if (r != 0) {
+		aprint_error_dev(sc->sc_dev,
+				 "DMA memory map failed, "
+				 "error code %d\n", r);
+		goto err_dmamem_alloc;
+	}
+#endif
+//	sc->sc_rx_hdrs = vaddr;
+	memset(sc->sc_rx_hdrs, 0, allocsize);
+	p = (intptr_t) vaddr;
+	p += sizeof(struct virtio_net_hdr) * rxqsize;
+#define P(name,size)	do { sc->sc_ ##name = (void*) p;	\
+			     p += size; } while (0)
+	P(tx_hdrs, sizeof(struct virtio_net_hdr) * txqsize);
+	if (vsc->sc_nvqs == 3) {
+		TRACE;
+		panic("Not implemented");
+#if 0
+		P(ctrl_cmd, sizeof(struct virtio_net_ctrl_cmd));
+		P(ctrl_status, sizeof(struct virtio_net_ctrl_status));
+		P(ctrl_rx, sizeof(struct virtio_net_ctrl_rx));
+		P(ctrl_mac_tbl_uc, sizeof(struct virtio_net_ctrl_mac_tbl));
+		P(ctrl_mac_tbl_mc,
+		  (sizeof(struct virtio_net_ctrl_mac_tbl)
+		   + ETHER_ADDR_LEN * VIRTIO_NET_CTRL_MAC_MAXENTRIES));
+#endif
+	}
+#undef P
+
+//	allocsize2 = sizeof(bus_dmamap_t) * (rxqsize + txqsize);
+//	allocsize2 += sizeof(bus_dmamap_t) * (rxqsize + txqsize);
+//	allocsize2 = sizeof(struct mbuf_desc) * (rxqsize + txqsize);
+	sc->sc_rx_mbuf_descs =
+		kmem_zalloc(sizeof(struct mbuf_desc) * (rxqsize + txqsize),
+			KM_SLEEP);
+
+	if (!sc->sc_rx_mbuf_descs)
+		goto out_alloc_desc;
+
+	sc->sc_tx_mbuf_descs = sc->sc_rx_mbuf_descs + rxqsize;
+/*	
+	sc->sc_txhdr_dmamaps = sc->sc_arrays + rxqsize;
+	sc->sc_rx_dmamaps = sc->sc_txhdr_dmamaps + txqsize;
+	sc->sc_tx_dmamaps = sc->sc_rx_dmamaps + rxqsize;
+	sc->sc_rx_mbufs = (void*) (sc->sc_tx_dmamaps + txqsize);
+	sc->sc_tx_mbufs = sc->sc_rx_mbufs + rxqsize;
+*/
+
+#if 0
+#define C(map, buf, size, nsegs, rw, usage)				\
+	do {								\
+		r = bus_dmamap_create(vsc->sc_dmat, size, nsegs, size, 0, \
+				      BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW,	\
+				      &sc->sc_ ##map);			\
+		if (r != 0) {						\
+			aprint_error_dev(sc->sc_dev,			\
+					 usage " dmamap creation failed, " \
+					 "error code %d\n", r);		\
+					 goto err_reqs;			\
+		}							\
+	} while (0)
+#define C_L1(map, buf, size, nsegs, rw, usage)				\
+	C(map, buf, size, nsegs, rw, usage);				\
+	do {								\
+		r = bus_dmamap_load(vsc->sc_dmat, sc->sc_ ##map,	\
+				    &sc->sc_ ##buf, size, NULL,		\
+				    BUS_DMA_ ##rw | BUS_DMA_NOWAIT);	\
+		if (r != 0) {						\
+			aprint_error_dev(sc->sc_dev,			\
+					 usage " dmamap load failed, "	\
+					 "error code %d\n", r);		\
+			goto err_reqs;					\
+		}							\
+	} while (0)
+#define C_L2(map, buf, size, nsegs, rw, usage)				\
+	C(map, buf, size, nsegs, rw, usage);				\
+	do {								\
+		r = bus_dmamap_load(vsc->sc_dmat, sc->sc_ ##map,	\
+				    sc->sc_ ##buf, size, NULL,		\
+				    BUS_DMA_ ##rw | BUS_DMA_NOWAIT);	\
+		if (r != 0) {						\
+			aprint_error_dev(sc->sc_dev,			\
+					 usage " dmamap load failed, "	\
+					 "error code %d\n", r);		\
+			goto err_reqs;					\
+		}							\
+	} while (0)
+	for (i = 0; i < rxqsize; i++) {
+		C_L1(rxhdr_dmamaps[i], rx_hdrs[i],
+		    sizeof(struct virtio_net_hdr), 1,
+		    READ, "rx header");
+		C(rx_dmamaps[i], NULL, MCLBYTES, 1, 0, "rx payload");
+	}
+
+	for (i = 0; i < txqsize; i++) {
+		C_L1(txhdr_dmamaps[i], rx_hdrs[i],
+		    sizeof(struct virtio_net_hdr), 1,
+		    WRITE, "tx header");
+		C(tx_dmamaps[i], NULL, ETHER_MAX_LEN, 256 /* XXX */, 0,
+		  "tx payload");
+	}
+#endif
+
+	/* Allocate dma handles for rx and tx segments. */
+	for (i = 0; i < rxqsize + txqsize; i++) {
+		/* tx desc follow right after th rx descs. */
+		r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_hdr_dma_attr,
+			DDI_DMA_SLEEP, NULL, &sc->sc_rx_mbuf_descs[i].md_dma_handle);
+		if (r) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"Failed to allocate dma handle for data headers");
+			goto out_alloc_desc_handle;
+		}
+#if 0
+
+		C_L1(rxhdr_dmamaps[i], rx_hdrs[i],
+		    sizeof(struct virtio_net_hdr), 1,
+		    READ, "rx header");
+		C(rx_dmamaps[i], NULL, MCLBYTES, 1, 0, "rx payload");
+#endif
+	}
+#if 0
+	for (i = 0; i < txqsize; i++) {
+		C_L1(txhdr_dmamaps[i], rx_hdrs[i],
+		    sizeof(struct virtio_net_hdr), 1,
+		    WRITE, "tx header");
+		C(tx_dmamaps[i], NULL, ETHER_MAX_LEN, 256 /* XXX */, 0,
+		  "tx payload");
+	}
+#endif
+	if (vsc->sc_nvqs == 3) {
+		TRACE;
+
+		panic("Not implemented");
+#if 0
+		/* control vq class & command */
+		C_L2(ctrl_cmd_dmamap, ctrl_cmd,
+		    sizeof(struct virtio_net_ctrl_cmd), 1, WRITE,
+		    "control command");
+		
+		/* control vq status */
+		C_L2(ctrl_status_dmamap, ctrl_status,
+		    sizeof(struct virtio_net_ctrl_status), 1, READ,
+		    "control status");
+
+		/* control vq rx mode command parameter */
+		C_L2(ctrl_rx_dmamap, ctrl_rx,
+		    sizeof(struct virtio_net_ctrl_rx), 1, WRITE,
+		    "rx mode control command");
+
+		/* control vq MAC filter table for unicast */
+		/* do not load now since its length is variable */
+		C(ctrl_tbl_uc_dmamap, NULL,
+		  sizeof(struct virtio_net_ctrl_mac_tbl) + 0, 1, WRITE,
+		  "unicast MAC address filter command");
+
+		/* control vq MAC filter table for multicast */
+		C(ctrl_tbl_mc_dmamap, NULL,
+		  (sizeof(struct virtio_net_ctrl_mac_tbl)
+		   + ETHER_ADDR_LEN * VIRTIO_NET_CTRL_MAC_MAXENTRIES),
+		  1, WRITE, "multicast MAC address filter command");
+#endif
+	}
+//#undef C_L2
+//#undef C_L1
+//#undef C
+
+	return (DDI_SUCCESS);
+
+out_alloc_desc_handle:
+	for (i = 0; i < rxqsize + txqsize; i++) {
+		if (sc->sc_rx_mbuf_descs[i].md_dma_handle) {
+			ddi_dma_free_handle(&sc->sc_hdr_dma_handle);
+		} else {
+			break;
+		}
+	}
+
+	kmem_free(sc->sc_rx_mbuf_descs,
+		sizeof(struct mbuf_desc) * (rxqsize + txqsize));
+
+out_alloc_desc:
+	ddi_dma_unbind_handle(sc->sc_hdr_dma_handle);
+out_bind:
+	ddi_dma_mem_free(&sc->sc_hdr_dma_acch);
+out_mem:
+	ddi_dma_free_handle(&sc->sc_hdr_dma_handle);
+out:
+	return (r);
+#if 0
+err_reqs:
+#define D(map)								\
+	do {								\
+		if (sc->sc_ ##map) {					\
+			bus_dmamap_destroy(vsc->sc_dmat, sc->sc_ ##map); \
+			sc->sc_ ##map = NULL;				\
+		}							\
+	} while (0)
+	D(ctrl_tbl_mc_dmamap);
+	D(ctrl_tbl_uc_dmamap);
+	D(ctrl_rx_dmamap);
+	D(ctrl_status_dmamap);
+	D(ctrl_cmd_dmamap);
+	for (i = 0; i < txqsize; i++) {
+		D(tx_dmamaps[i]);
+		D(txhdr_dmamaps[i]);
+	}
+	for (i = 0; i < rxqsize; i++) {
+		D(rx_dmamaps[i]);
+		D(rxhdr_dmamaps[i]);
+	}
+#undef D
+	if (sc->sc_arrays) {
+		kmem_free(sc->sc_arrays, allocsize2);
+		sc->sc_arrays = 0;
+	}
+err_dmamem_map:
+	bus_dmamem_unmap(vsc->sc_dmat, sc->sc_hdrs, allocsize);
+err_dmamem_alloc:
+	bus_dmamem_free(vsc->sc_dmat, &sc->sc_hdr_segs[0], 1);
+err_none:
+	return -1;
+#endif
 }
 
 int
@@ -516,7 +860,7 @@ virtio_net_start(void *arg)
 
 	TRACE;
 
-	virtio_net_link_up(sc);
+//	virtio_net_link_up(sc);
 
 	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
 
@@ -549,7 +893,7 @@ virtio_net_stop(void *arg)
 	struct vioif_softc *sc = arg;
 	TRACE;
 	
-	virtio_net_link_down(sc);
+//	virtio_net_link_down(sc);
 	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
 	return;
 #if 0
@@ -862,7 +1206,7 @@ virtio_net_dev_features(struct vioif_softc *sc)
 			VIRTIO_NET_F_MAC |
 			VIRTIO_NET_F_STATUS |
 //			VIRTIO_NET_F_CTRL_VQ |
-			VIRTIO_NET_F_CTRL_RX |
+//			VIRTIO_NET_F_CTRL_RX |
 			VIRTIO_F_NOTIFY_ON_EMPTY |
 			VRING_DESC_F_INDIRECT);
 
@@ -997,7 +1341,6 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	virtio_net_get_mac(sc);
 
-#define MCLBYTES 2048
 	ret = virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[0], 0, 2, "rx");
 	if (ret) {
 		goto exit_alloc1;
@@ -1029,6 +1372,9 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		}
 	}
 */
+	if (virtio_net_alloc_mems(sc))
+		goto exit_alloc_mems;
+
 	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
 		dev_err(devinfo, CE_WARN, "Failed to alocate a mac_register");
 		goto exit_macalloc;
@@ -1058,6 +1404,8 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 exit_register:
 	mac_free(macp);
 exit_macalloc:
+//	virtio_net_free_mems(sc);
+exit_alloc_mems:
 	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[1]);
 exit_alloc2:
 	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[0]);

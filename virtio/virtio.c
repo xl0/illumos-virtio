@@ -540,7 +540,6 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		dev_err(sc->sc_dev, CE_WARN,
 			"Failed to bind dma memory for vq %d", index);
 		goto out_bind;
-
 	}
 
 	/* We asked for a single segment */

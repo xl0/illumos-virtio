@@ -82,6 +82,12 @@ struct vq_entry {
 	int16_t			qe_next;     /* next enq slot */
 	bool			qe_indirect; /* 1 if using indirect */
 	struct vring_desc	*qe_desc_base;
+/*
+	void			*qe_vaddr;
+	ddi_dma_cookie_t	qe_dma_cookie;
+	ddi_dma_handle_t	qe_dma_handle;
+	ddi_acc_handle_t	qe_dma_acch;
+*/
 };
 
 struct virtqueue {
