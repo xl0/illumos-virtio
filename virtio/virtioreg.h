@@ -105,7 +105,8 @@
 /* Virtqueue */
 /* This marks a buffer as continuing via the next field. */
 #define VRING_DESC_F_NEXT       1
-/* This marks a buffer as write-only (otherwise read-only). */
+/* This marks a buffer as write-only, from the devices's perspective.
+   (otherwise read-only). */
 #define VRING_DESC_F_WRITE      2
 /* This means the buffer contains a list of buffer descriptors. */
 #define VRING_DESC_F_INDIRECT	4

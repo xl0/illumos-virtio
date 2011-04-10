@@ -44,6 +44,7 @@
 #include <sys/sysmacros.h>
 #include <sys/pci.h>
 
+#include "util.h"
 #include "virtiovar.h"
 #include "virtioreg.h"
 #define NDEVNAMES	(sizeof(virtio_device_name)/sizeof(char*))
@@ -58,55 +59,18 @@ static inline void      vq_sync_uring(struct virtio_softc *sc,
 				      struct virtqueue *vq, int ops);
 static inline void      vq_sync_aring(struct virtio_softc *sc,
 				      struct virtqueue *vq, int ops);
-static void             virtio_init_vq(struct virtio_softc *sc,
-				       struct virtqueue *vq);
-//static void             virtio_helper(void *arg, bus_dma_segment_t *segs,
-//				      int nseg, int error);
-static inline void      vq_sync_indirect(struct virtio_softc *sc,
-					 struct virtqueue *vq, int slot, int ops);
+//static void             virtio_init_vq(struct virtio_softc *sc,
+//				       struct virtqueue *vq);
+static int virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq);
+//static inline void      vq_sync_indirect(struct virtio_softc *sc,
+//					 struct virtqueue *vq, int slot, int ops);
 static inline void      vq_sync_descs(struct virtio_softc *sc,
 				      struct virtqueue *vq, int ops);
-static void             vq_free_entry(struct virtqueue *vq,
-				      struct vq_entry *qe);
-static struct vq_entry *        vq_alloc_entry(struct virtqueue *vq); 
-//static int              virtio_probe(device_t dev);
-//static int              virtio_detach(device_t dev);
+//static void             vq_free_entry(struct virtqueue *vq,
+//				      struct vq_entry *qe);
+//static struct vq_entry *        vq_alloc_entry(struct virtqueue *vq); 
 static int              virtio_intr(void *arg);
-//static int              virtio_attach(device_t dev);
 
-/* 
- * Add to ddi? 
- */
-void
-dev_err(dev_info_t *dip, int ce, char *fmt, ...)
-{
-	va_list ap;
-	char    buf[256];
-
-	ASSERT(dip != NULL);
-
-	va_start(ap, fmt);
-	(void) vsnprintf(buf, sizeof (buf), fmt, ap);
-	va_end(ap);
-
-	cmn_err(ce, "%s%d: %s", ddi_driver_name(dip),
-		ddi_get_instance(dip), buf);
-}
-
-void dev_panic(dev_info_t *dip, char *fmt, ...)
-{
-	va_list ap;
-	char    buf[256];
-
-	ASSERT(dip != NULL);
-
-	va_start(ap, fmt);
-	(void) vsnprintf(buf, sizeof (buf), fmt, ap);
-	va_end(ap);
-
-	panic("%s%d: %s", ddi_driver_name(dip),
-		ddi_get_instance(dip), buf);
-}
 
 void virtio_set_status(struct virtio_softc *sc, int status)
 {
@@ -181,7 +145,7 @@ virtio_reinit_end(struct virtio_softc *sc)
 
 /*
  * Negotiate features, save the result in sc->sc_features
- */     
+ */
 uint32_t
 virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 {
@@ -238,8 +202,6 @@ virtio_read_device_config_4(struct virtio_softc *sc, int index)
 uint64_t
 virtio_read_device_config_8(struct virtio_softc *sc, int index)
 {
-	uint64_t r;
-
 	return ddi_get64(sc->sc_ioh,
 		(uint64_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
 }
@@ -360,6 +322,7 @@ vq_sync_indirect(struct virtio_softc *sc, struct virtqueue *vq, int slot,
 /*
  * Can be used as sc_intrhand.
  */
+#if 0
 /*
  * Scan vq, bus_dmamap_sync for the vqs (not for the payload),
  * and calls (*vq_done)() if some entries are consumed.
@@ -374,10 +337,7 @@ virtio_vq_intr(struct virtio_softc *sc)
 		vq = &sc->sc_vqs[i];
 		if (vq->vq_queued) {
 			vq->vq_queued = 0;
-//			vq_sync_aring(sc, vq, BUS_DMASYNC_POSTWRITE);
 		}
-//		vq_sync_uring(sc, vq, BUS_DMASYNC_POSTREAD);
-//		membar_consumer();
 		if (vq->vq_used_idx != vq->vq_used->idx) {
 			if (vq->vq_done)
 				r |= (vq->vq_done)(vq);
@@ -395,7 +355,6 @@ void
 virtio_stop_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
-//	vq_sync_aring(sc, vq, BUS_DMASYNC_PREWRITE);
 	vq->vq_queued++;
 }
 
@@ -403,59 +362,9 @@ void
 virtio_start_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
-//	vq_sync_aring(sc, vq, BUS_DMASYNC_PREWRITE);
 	vq->vq_queued++;
 }
-
-/*
- * Initialize vq structure.
- */
-static void
-virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
-{
-	int i, j;
-	int vq_size = vq->vq_num;
-
-	memset(vq->vq_vaddr, 0, vq->vq_bytesize);
-#if 0
-	/* build the indirect descriptor chain */
-	if (vq->vq_indirect != NULL) {
-		struct vring_desc *vd;
-
-		for (i = 0; i < vq_size; i++) {
-			vd = vq->vq_indirect;
-			vd += vq->vq_maxnsegs * i;
-			for (j = 0; j < vq->vq_maxnsegs-1; j++)
-				vd[j].next = j + 1;
-		}
-	}
 #endif
-
-	/* free slot management */
-	list_create(&vq->vq_freelist, sizeof(struct vq_entry),
-		offsetof(struct vq_entry, qe_list));
-	for (i = 0; i < vq_size; i++) {
-		list_insert_tail(&vq->vq_freelist, &vq->vq_entries[i]);
-//		SIMPLEQ_INSERT_TAIL(&vq->vq_freelist,
-//				    &vq->vq_entries[i], qe_list);
-		vq->vq_entries[i].qe_index = i;
-	}
-	mutex_init(&vq->vq_freelist_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_ipl);
-
-	/* enqueue/dequeue status */
-	vq->vq_avail_idx = 0;
-	vq->vq_used_idx = 0;
-	vq->vq_queued = 0;
-	mutex_init(&vq->vq_aring_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_ipl);
-	mutex_init(&vq->vq_uring_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_ipl);
-//	vq_sync_aring(sc, vq, BUS_DMASYNC_PREWRITE);
-//	vq_sync_uring(sc, vq, BUS_DMASYNC_PREREAD);
-	vq->vq_queued++;
-}
-
 
 static ddi_dma_attr_t virtio_vq_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
@@ -472,26 +381,118 @@ static ddi_dma_attr_t virtio_vq_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
+static ddi_dma_attr_t virtio_entry_dma_attr = {
+	DMA_ATTR_V0,   /* Version number */
+	0,	       /* low address */
+	0xFFFFFFFF,    /* high address */
+	0xFFFFFFFF,    /* counter register max */
+	1,             /* default alignment */
+	0x3F,          /* burst sizes: 1 - 32 */
+	0x1,           /* minimum transfer size */
+	0xFFFFFFFF,    /* max transfer size */
+	0xFFFFFFFF,    /* address register max */
+	1,             /* no scatter-gather */
+	1,             /* device operates on bytes */
+	0,             /* attr flag: set to 0 */
+};
+
 static ddi_device_acc_attr_t virtio_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
-	DDI_STRUCTURE_LE_ACC,
+	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
 };
+
+#if 0
+static void vq_free_handles (struct virtio_softc *sc, struct virtqueue *vq)
+{
+	int i;
+	TRACE;
+
+	for (i = 0; i < vq->vq_num; i++) {
+		if (vq->vq_entries[i].qe_dma_handle)
+			ddi_dma_free_handle(&vq->vq_entries[i].qe_dma_handle);
+	}
+}
+
+
+static int vq_alloc_handles (struct virtio_softc *sc, struct virtqueue *vq)
+{
+	int i, r;
+
+	TRACE;
+
+	for (i = 0; i < vq->vq_num; i++) {
+		r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_entry_dma_attr,
+			DDI_DMA_SLEEP, NULL,
+			&vq->vq_entries[i].qe_dma_handle);
+		if (r) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"Failed to alloc dma handle for vq %d entry %d",
+				vq->vq_index, i);
+
+			vq_free_handles(sc, vq);
+
+			return (r);
+		}
+//		cmn_err(CE_NOTE, "handle = %p", vq->vq_entries[i].qe_dma_handle);
+	}
+
+	return (0);
+}
+#endif
+
+/*
+ * Initialize vq structure.
+ */
+static int
+virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
+{
+	int i;
+	int vq_size = vq->vq_num;
+
+//	TRACE;
+
+	/* free slot management */
+	list_create(&vq->vq_freelist, sizeof(struct vq_entry),
+		offsetof(struct vq_entry, qe_list));
+
+//	r = vq_alloc_handles(sc, vq);
+//	if (r)
+//		return r;
+
+	for (i = 0; i < vq_size; i++) {
+		list_insert_tail(&vq->vq_freelist, &vq->vq_entries[i]);
+		vq->vq_entries[i].qe_index = i;
+		vq->vq_entries[i].qe_desc = &vq->vq_descs[i];
+	}
+
+	mutex_init(&vq->vq_freelist_lock, "virtio",
+			MUTEX_DRIVER, sc->sc_icookie);
+	mutex_init(&vq->vq_aring_lock, "virtio",
+			MUTEX_DRIVER, sc->sc_icookie);
+	mutex_init(&vq->vq_uring_lock, "virtio",
+			MUTEX_DRIVER, sc->sc_icookie);
+	return (0);
+}
+
+
 
 /*
  * Allocate/free a vq.
  */
 int
 virtio_alloc_vq(struct virtio_softc *sc,
-		struct virtqueue *vq, int index, int maxnsegs,
+		struct virtqueue *vq, int index,
+		int size,
 		const char *name)
 {
 	int vq_size, allocsize1, allocsize2, allocsize = 0;
-	int rsegs, r;
+	int r;
 	unsigned int ncookies;
 	size_t len;
 #define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))&	\
 				 ~(VIRTIO_PAGE_SIZE-1))
+	TRACE;
 
 	memset(vq, 0, sizeof(*vq));
 
@@ -505,6 +506,11 @@ virtio_alloc_vq(struct virtio_softc *sc,
 			 index, name);
 		goto out;
 	}
+
+	/* size 0 => use native vq size, good for receive queues. */
+	if (size)
+		vq_size = MIN(vq_size, size);
+
 	/* allocsize1: descriptor table + avail ring + pad */
 	allocsize1 = VIRTQUEUE_ALIGN(sizeof(struct vring_desc) * vq_size
 				     + sizeof(uint16_t) * (2 + vq_size));
@@ -512,14 +518,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	allocsize2 = VIRTQUEUE_ALIGN(sizeof(uint16_t) * 2
 				     + sizeof(struct vring_used_elem) * vq_size);
 
-#if 0
-	/* allocsize3: indirect table */
-	if (sc->sc_indirect && maxnsegs >= MINSEG_INDIRECT)
-		allocsize3 = sizeof(struct vring_desc) * maxnsegs * vq_size;
-	else
-		allocsize3 = 0;
-	allocsize = allocsize1 + allocsize2 + allocsize3;
-#endif
+	allocsize = allocsize1 + allocsize2;
 
 	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_vq_dma_attr,
 		DDI_DMA_SLEEP, NULL, &vq->vq_dma_handle);
@@ -538,6 +537,8 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_alloc;
 	}
 
+	memset(vq->vq_vaddr, 0, allocsize);
+
 	r = ddi_dma_addr_bind_handle(vq->vq_dma_handle, NULL,
 		(caddr_t) vq->vq_vaddr, allocsize, DDI_DMA_RDWR | DDI_DMA_CONSISTENT,
 		DDI_DMA_SLEEP, NULL, &vq->vq_dma_cookie, &ncookies);
@@ -551,41 +552,6 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	ASSERT(ncookies == 1);
 	/* and page-ligned buffers. */
 	ASSERT(vq->vq_dma_cookie.dmac_address % VIRTIO_PAGE_SIZE == 0);
-#if 0
-	/* alloc and map the memory */
-	r = bus_dmamem_alloc(sc->sc_dmat, allocsize, VIRTIO_PAGE_SIZE, 0,
-			     &vq->vq_segs[0], 1, &rsegs, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "virtqueue %d for %s allocation failed, "
-				 "error code %d\n", index, name, r);
-		goto err;
-	}
-	r = bus_dmamem_map(sc->sc_dmat, &vq->vq_segs[0], 1, allocsize,
-			   &vq->vq_vaddr, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "virtqueue %d for %s map failed, "
-				 "error code %d\n", index, name, r);
-		goto err;
-	}
-	r = bus_dmamap_create(sc->sc_dmat, allocsize, 1, allocsize, 0,
-			      BUS_DMA_NOWAIT, &vq->vq_dmamap);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "virtqueue %d for %s dmamap creation failed, "
-				 "error code %d\n", index, name, r);
-		goto err;
-	}
-	r = bus_dmamap_load(sc->sc_dmat, vq->vq_dmamap,
-			    vq->vq_vaddr, allocsize, NULL, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "virtqueue %d for %s dmamap load failed, "
-				 "error code %d\n", index, name, r);
-		goto err;
-	}
-#endif
 	/* set the vq address */
 	ddi_put32(sc->sc_ioh,
 		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_ADDRESS),
@@ -595,20 +561,11 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	vq->vq_owner = sc;
 	vq->vq_num = vq_size;
 	vq->vq_index = index;
-	vq->vq_desc = vq->vq_vaddr;
+	vq->vq_descs = vq->vq_vaddr;
 	vq->vq_availoffset = sizeof(struct vring_desc)*vq_size;
-	vq->vq_avail = (void*)(((char*)vq->vq_desc) + vq->vq_availoffset);
+	vq->vq_avail = (void*)(((char*)vq->vq_descs) + vq->vq_availoffset);
 	vq->vq_usedoffset = allocsize1;
-	vq->vq_used = (void*)(((char*)vq->vq_desc) + vq->vq_usedoffset);
-#if 0
-	if (allocsize3 > 0) {
-		vq->vq_indirectoffset = allocsize1 + allocsize2;
-		vq->vq_indirect = (void*)(((char*)vq->vq_desc)
-					  + vq->vq_indirectoffset);
-	}
-#endif
-	vq->vq_bytesize = allocsize;
-	vq->vq_maxnsegs = maxnsegs;
+	vq->vq_used = (void*)(((char*)vq->vq_descs) + vq->vq_usedoffset);
 
 	/* free slot management */
 	vq->vq_entries = kmem_zalloc(sizeof(struct vq_entry)*vq_size,
@@ -619,19 +576,16 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_zalloc;
 	}
 
-	virtio_init_vq(sc, vq);
+	if (virtio_init_vq(sc, vq))
+		goto out_init;
 
 	dev_err(sc->sc_dev, CE_NOTE,
 		   "allocated %u byte for virtqueue %d for %s, "
 		   "size %d\n", allocsize, index, name, vq_size);
-#if 0
-	if (allocsize3 > 0)
-		dev_err(sc->sc_dev, CE_NOTE,
-			   "using %d byte (%d entries) "
-			   "indirect descriptors\n",
-			   allocsize3, maxnsegs * vq_size);
-#endif
 	return 0;
+
+out_init:
+	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
 out_zalloc:
 	ddi_dma_unbind_handle(vq->vq_dma_handle);
 out_bind:
@@ -642,11 +596,14 @@ out:
 	return (DDI_FAILURE);
 }
 
+
 int
 virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
 {
 	struct vq_entry *qe;
 	int i = 0;
+
+	TRACE;
 
 	/* device must be already deactivated */
 	/* confirm the vq is empty */
@@ -668,7 +625,8 @@ virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SIZE), 0);
 
-	kmem_free(vq->vq_entries, vq->vq_bytesize);
+//	vq_free_handles(sc, vq);
+	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
 
 	ddi_dma_unbind_handle(vq->vq_dma_handle);
 	ddi_dma_mem_free(&vq->vq_dma_acch);
@@ -690,7 +648,7 @@ virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
 /*
  * Free descriptor management.
  */
-static struct vq_entry *
+struct vq_entry *
 vq_alloc_entry(struct virtqueue *vq)
 {
 	struct vq_entry *qe;
@@ -701,20 +659,243 @@ vq_alloc_entry(struct virtqueue *vq)
 		return NULL;
 	}
 	qe = list_remove_head(&vq->vq_freelist);
-//	SIMPLEQ_REMOVE_HEAD(&vq->vq_freelist, qe_list);
+
 	mutex_exit(&vq->vq_freelist_lock);
+
+	qe->qe_next = NULL;
+	qe->qe_flags = 0;
+	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
 	return qe;
 }
 
-static void
+void
 vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 {
 	mutex_enter(&vq->vq_freelist_lock);
 	list_insert_head(&vq->vq_freelist, qe);
 	mutex_exit(&vq->vq_freelist_lock);
+}
 
-	return;
+void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
+	uint32_t paddr, uint16_t len, bool write)
+{
+	qe->qe_desc->addr = paddr;
+	qe->qe_desc->len = len;
+	qe->qe_dmah = dmah;
+
+	/* 'write' - from the driver's point of view*/
+	if (!write) {
+		qe->qe_flags = VRING_DESC_F_WRITE;
+	}
+}
+
+static void virtio_notify(struct virtqueue *vq)
+{
+	struct virtio_softc *vsc = vq->vq_owner;
+
+	/* Find out if we need to notify the device. */
+	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
+		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
+
+	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
+		ddi_put16(vsc->sc_ioh,
+			(uint16_t *) (vsc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_NOTIFY),
+			vq->vq_index);
+
+}
+
+void virtio_queue_show(struct virtqueue *vq)
+{
+	
+}
+
+void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
+{
+	struct vq_entry *head = qe;
+	int i = 0;
+
+	ASSERT(qe);
+	TRACE;
+
+	cmn_err(CE_NOTE, "Pushing. head idx = %d", head->qe_index);
+
+	/* Bind the descs together, paddr and len should be already
+	 * set with virtio_ve_set */
+	do {
+		if (qe->qe_next) {
+			qe->qe_desc->flags |= VRING_DESC_F_NEXT;
+			qe->qe_desc->next = qe->qe_next->qe_index;
+
+			cmn_err(CE_NOTE, "Pushing. tail idx = %d", qe->qe_index);
+		}
+//		(void ) ddi_dma_sync(qe->qe_dmah, 0, qe->qe_desc->len,
+//				DDI_DMA_SYNC_FORDEV);
+
+		/* Add the descriptor to the available ring, don't change idx yet.*/
+	
+//		vq->vq_avail->ring[vq->vq_avail_idx++] = qe->qe_index;
+
+		i++;
+		qe = qe->qe_next;
+	} while (qe);
+
+//	TRACE;
+
+	mutex_enter(&vq->vq_aring_lock);
+	/* Do an other pass, adding the descs to the ring. Now with the
+	 * avail ring mutex held. */
+	//qe = head;
+	vq->vq_avail->ring[(vq->vq_avail_idx) % vq->vq_num] = head->qe_index;
+	vq->vq_avail_idx++;
+/*
+	do {
+		cmn_err(CE_NOTE, "Pushed descriptor %d to ring entry %d",
+				qe->qe_index, (vq->vq_avail_idx) % vq->vq_num);
+		vq->vq_avail->ring[(vq->vq_avail_idx) % vq->vq_num] = qe->qe_index;
+		vq->vq_avail_idx++;
+		qe = qe->qe_next;
+	} while (qe);
+*/
+	cmn_err(CE_NOTE, "pushed %d descriptors, head: %d",i, head->qe_index);
+
+//	cmn_err(CE_NOTE, "vq->vq_avail_idx = %d, vq->vq_avail->idx = %d",
+//			vq->vq_avail_idx, vq->vq_avail->idx);
+
+//	TRACE;
+
+	/* Sync the part of the ring that has been filled. */
+	/* XXX worth the trouble? Maybe just sync the whole mapping? */
+	(void) ddi_dma_sync(vq->vq_dma_handle,
+		vq->vq_availoffset + sizeof(struct vring_avail) +
+			((sizeof(uint16_t) * vq->vq_avail->idx ) & 0xfffffff0),
+		/*sizeof(uint16_t) * (vq->vq_avail_idx - vq->vq_avail->idx)*/ 32,
+		DDI_DMA_SYNC_FORDEV);
+
+//	TRACE;
+	/* Yes, we need to make sure the device sees the idx update after
+	 * it sees the ring update. */
+	vq->vq_avail->idx = vq->vq_avail_idx;
+//	TRACE;
+
+	/* Sync the idx and flags */
+	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
+		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
+
+	mutex_exit(&vq->vq_aring_lock);
+
+	virtio_notify(vq);
+
+	TRACE;
+}
+
+/* Get a chain of descriptors from the used ring, if one is available. */
+struct vq_entry * virtio_pull_chain(struct virtqueue *vq)
+{
+	struct vq_entry *head;
+	struct vq_entry *tmp;
+	int slot;
+	int usedidx;
+	int i = 0;
+
+	TRACE;
+
+	/* Sync idx (and flags) */
+	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
+		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
+
+
+	cmn_err(CE_NOTE, "vq->vq_used_idx = %d, vq->vq_used->idx = %d",
+			vq->vq_used_idx, vq->vq_used->idx);
+
+	if (vq->vq_used_idx == vq->vq_used->idx)
+		return NULL;
+
+	i++;
+	mutex_enter(&vq->vq_uring_lock);
+	usedidx = vq->vq_used_idx++;
+	mutex_exit(&vq->vq_uring_lock);
+
+	usedidx %= vq->vq_num;
+
+	/* Sync the ring entry */
+	ddi_dma_sync(vq->vq_dma_handle,
+		vq->vq_usedoffset + sizeof(struct vring_used) +
+			sizeof(struct vring_used_elem) * usedidx,
+		sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORCPU);
+
+	slot = vq->vq_used->ring[usedidx].id;
+
+	cmn_err(CE_NOTE, "Pulled descriptor %d from slot %d", slot, usedidx);
+
+	/* And the descriptor */
+	ddi_dma_sync(vq->vq_dma_handle,
+		sizeof(struct vring_desc) * slot,
+		sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
+	head = tmp = &vq->vq_entries[slot];
+
+	/* Sanity-check the rest of the chain. */
+	while (tmp->qe_desc->flags & VRING_DESC_F_NEXT) {
+		ASSERT(tmp->qe_next);
+		ASSERT(tmp->qe_next->qe_index == tmp->qe_desc->next);
+
+		/* Sync the next descriptor */
+		ddi_dma_sync(vq->vq_dma_handle,
+			sizeof(struct vring_desc) * tmp->qe_next->qe_index,
+			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
+
+		tmp = tmp->qe_next;
+		i++;
+#if 0
+		mutex_enter(&vq->vq_uring_lock);
+		usedidx = vq->vq_used_idx++;
+		mutex_exit(&vq->vq_uring_lock);
+
+		usedidx %= vq->vq_num;
+
+		/* Sync the ring entry */
+		ddi_dma_sync(vq->vq_dma_handle,
+			vq->vq_usedoffset + sizeof(struct vring_used) +
+				sizeof(struct vring_used_elem) * usedidx,
+			sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORCPU);
+
+		slot = vq->vq_used->ring[usedidx].id;
+#endif		
+		/* And the descriptor */
+/*
+		ddi_dma_sync(vq->vq_dma_handle,
+			sizeof(struct vring_desc) * slot,
+			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
+
+		ASSERT(tmp->qe_next.qe_index == slot);
+*/
+//		tmp = &vq->vq_entries[slot];
+	}
+
+	cmn_err(CE_NOTE, "Pulled %d descriptors", i);
+
+	ASSERT(tmp->qe_next == NULL);
+	TRACE;
+
+	return head;
+}
+
+void virtio_free_chain(struct virtqueue *vq, struct vq_entry *ve)
+{
+	struct vq_entry *tmp;
+
+	ASSERT(ve);
+
+	TRACE;
+	while (ve->qe_next) {
+//		FAST_TRACE;
+		tmp = ve->qe_next;
+		vq_free_entry(vq, ve);
+		ve = tmp;
+	}
+
+	vq_free_entry(vq, ve);
 }
 
 /*
@@ -749,7 +930,7 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
  *	virtio_enqueue(sc, vq, slot, dmamap_payload[slot], iswrite);
  *	virtio_enqueue_commit(sc, vq, slot, true);
  */
-
+#if 0
 /*
  * enqueue_prep: allocate a slot number
  */
@@ -769,7 +950,20 @@ virtio_enqueue_prep(struct virtio_softc *sc, struct virtqueue *vq, int *slotp)
 
 	return 0;
 }
+#endif
 
+void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second)
+{
+//	int slot;
+
+//	slot = second->qe_index;
+
+	first->qe_next = second;
+//	first->qe_desc_base->flags |= VRING_DESC_F_NEXT;
+}
+
+
+#if 0
 /*
  * enqueue_reserve: allocate remaining slots and build the descriptor chain.
  */
@@ -777,71 +971,35 @@ int
 virtio_enqueue_reserve(struct virtio_softc *sc, struct virtqueue *vq,
 		       int slot, int nsegs)
 {
-//	int indirect;
 	struct vq_entry *qe1 = &vq->vq_entries[slot];
 
+	struct vring_desc *vd;
+	struct vq_entry *qe;
+	int i, s;
 	ASSERT(qe1->qe_next == -1);
 	ASSERT(1 <= nsegs && nsegs <= vq->vq_num);
-/*
-	if ((vq->vq_indirect != NULL) &&
-	    (nsegs >= MINSEG_INDIRECT) &&
-	    (nsegs <= vq->vq_maxnsegs))
-		indirect = 1;
-	else
-		indirect = 0;
-	qe1->qe_indirect = indirect;
-*/
-#if 0
-	if (indirect) {
-		struct vring_desc *vd;
-		int i;
 
-		vd = &vq->vq_desc[qe1->qe_index];
-		vd->addr = vq->vq_dma_cookie.dmac_address
-			+ vq->vq_indirectoffset;
-		vd->addr += sizeof(struct vring_desc)
-			* vq->vq_maxnsegs * qe1->qe_index;
-		vd->len = sizeof(struct vring_desc) * nsegs;
-		vd->flags = VRING_DESC_F_INDIRECT;
-
-		vd = vq->vq_indirect;
-		vd += vq->vq_maxnsegs * qe1->qe_index;
-		qe1->qe_desc_base = vd;
-
-		for (i = 0; i < nsegs-1; i++) {
-			vd[i].flags = VRING_DESC_F_NEXT;
+	vd = &vq->vq_desc[0];
+	qe1->qe_desc_base = vd;
+	qe1->qe_next = qe1->qe_index;
+	s = slot;
+	for (i = 0; i < nsegs - 1; i++) {
+		qe = vq_alloc_entry(vq);
+		if (qe == NULL) {
+			vd[s].flags = 0;
+			virtio_enqueue_abort(sc, vq, slot);
+			return EAGAIN;
 		}
-		vd[i].flags = 0;
-		qe1->qe_next = 0;
-
-		return 0;
-	} else {
-#endif
-	{
-		struct vring_desc *vd;
-		struct vq_entry *qe;
-		int i, s;
-
-		vd = &vq->vq_desc[0];
-		qe1->qe_desc_base = vd;
-		qe1->qe_next = qe1->qe_index;
-		s = slot;
-		for (i = 0; i < nsegs - 1; i++) {
-			qe = vq_alloc_entry(vq);
-			if (qe == NULL) {
-				vd[s].flags = 0;
-				virtio_enqueue_abort(sc, vq, slot);
-				return EAGAIN;
-			}
-			vd[s].flags = VRING_DESC_F_NEXT;
-			vd[s].next = qe->qe_index;
-			s = qe->qe_index;
-		}
-		vd[s].flags = 0;
-
-		return 0;
+		vd[s].flags = VRING_DESC_F_NEXT;
+		vd[s].next = qe->qe_index;
+		s = qe->qe_index;
 	}
+	vd[s].flags = 0;
+
+	return 0;
 }
+#endif
+
 /*
  * enqueue: enqueue a single dmamap.
  */

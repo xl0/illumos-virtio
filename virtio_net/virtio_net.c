@@ -65,7 +65,11 @@
 #include <sys/debug.h>
 #include <sys/pci.h>
 #include <sys/ethernet.h>
-#include <sys/vlan.h>
+
+/* Please export sys/vlan.h as part of ddi */
+//#include <sys/vlan.h>
+#define VLAN_TAGSZ 4
+
 #include <sys/dlpi.h>
 #include <sys/taskq.h>
 #include <sys/cyclic.h>
@@ -81,8 +85,10 @@
 #include <sys/mac_ether.h>
 
 
+#include "util.h"
 #include "virtiovar.h"
 #include "virtioreg.h"
+
 
 /*
  * if_vioifreg.h:
@@ -203,13 +209,16 @@ static struct modldrv modldrv = {
 };
 
 static struct modlinkage modlinkage = {
-	MODREV_1, (void *)&modldrv, NULL
+	MODREV_1,
+	{
+		(void *)&modldrv,
+		NULL,
+	},
 };
 
 ddi_device_acc_attr_t virtio_net_attr = {
 	DDI_DEVICE_ATTR_V0,
-	DDI_STRUCTURE_LE_ACC,
-	DDI_NEVERSWAP_ACC,
+	DDI_NEVERSWAP_ACC, /* virtio is always narive byte order */
 	DDI_STRICTORDER_ACC
 };
 
@@ -221,11 +230,18 @@ struct vioif_softc {
 };
 */
 
-struct mbuf_desc {
+struct mblk_desc {
 	ddi_dma_cookie_t	md_dma_cookie;
 	ddi_dma_handle_t	md_dma_handle;
 	ddi_acc_handle_t	md_dma_acch;
-	struct mbuf		*md_mbuf;
+	struct mblk_t		*md_mblk;
+};
+
+struct vioif_buf {
+	caddr_t			b_buf;
+	uint32_t		b_paddr;
+	ddi_dma_handle_t	b_dmah;
+	ddi_acc_handle_t	b_acch;
 };
 
 struct vioif_softc {
@@ -248,12 +264,20 @@ struct vioif_softc {
 	ddi_acc_handle_t	sc_hdr_dma_acch;
 	/* bus_dmamem */
 //	bus_dma_segment_t	sc_hdr_segs[1];
-	struct virtio_net_hdr	*sc_rx_hdrs;
+//	struct virtio_net_hdr	*sc_rx_hdrs;
 //#define sc_rx_hdrs	sc_hdrs
-	struct virtio_net_hdr	*sc_tx_hdrs;
+//	struct virtio_net_hdr	*sc_tx_hdrs;
 
-	struct mbuf_desc	*sc_rx_mbuf_descs;
-	struct mbuf_desc	*sc_tx_mbuf_descs;
+//	struct mblk_desc	*sc_rx_mblk_descs;
+//	struct mblk_desc	*sc_tx_mblk_descs;
+
+	/* Tx bufs - virtio_net_hdr + the packet. */
+	struct vioif_buf	*sc_rxbufs;
+	int			sc_numrxbufs;
+
+	/* Tx bufs - virtio_net_hdr + a copy of the packet. */
+	struct vioif_buf	*sc_txbufs;
+	int			sc_numtxbufs;
 //	struct virtio_net_ctrl_cmd *sc_ctrl_cmd;
 //	struct virtio_net_ctrl_status *sc_ctrl_status;
 //	struct virtio_net_ctrl_rx *sc_ctrl_rx;
@@ -282,9 +306,30 @@ struct vioif_softc {
 //	}			sc_ctrl_inuse;
 //	kcondvar_t		sc_ctrl_wait;
 	kmutex_t		sc_ctrl_wait_lock;
+	kmutex_t		sc_tx_lock;
+
+	kstat_t                 *sc_intrstat;
 };
-#define VIRTIO_NET_TX_MAXNSEGS		(16) /* XXX */
-#define VIRTIO_NET_CTRL_MAC_MAXENTRIES	(64) /* XXX */
+
+#define ETHERVLANMTU    (ETHERMAX + 4)
+
+#define VIOIF_IP_ALIGN 0
+#define VIOIF_TX_SIZE (VIOIF_IP_ALIGN + \
+		sizeof (struct virtio_net_hdr) + \
+		ETHERVLANMTU)
+
+/* Same for now. */
+#define VIOIF_RX_SIZE VIOIF_TX_SIZE
+
+#define VIOIF_PACKET_OFFSET (VIOIF_IP_ALIGN + \
+		sizeof (struct virtio_net_hdr))
+
+/* Native queue size for both rx an tx. */
+#define VIOIF_RX_QLEN 0
+#define VIOIF_TX_QLEN 0
+
+//#define VIRTIO_NET_TX_MAXNSEGS		(16) /* XXX */
+//#define VIRTIO_NET_CTRL_MAC_MAXENTRIES	(64) /* XXX */
 /*
  * _init
  *
@@ -298,6 +343,7 @@ _init(void)
 
 	mac_init_ops(&virtio_net_ops, "virtio_net");
 	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
+		TRACE;
 		mac_fini_ops(&virtio_net_ops);
 		cmn_err(CE_WARN, "unable to install the driver");
 		return (ret);
@@ -340,22 +386,24 @@ _info(struct modinfo *pModinfo)
 static link_state_t
 virtio_net_link_state(struct vioif_softc *sc)
 {
-	uint16_t tmp;
-
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS) {
 		if (virtio_read_device_config_2(&sc->sc_virtio,
 			VIRTIO_NET_CONFIG_STATUS) & VIRTIO_NET_S_LINK_UP) {
+
+			dev_err(sc->sc_dev, CE_NOTE, "Link up\n");
 			return (LINK_STATE_UP);
 		} else {
+			dev_err(sc->sc_dev, CE_NOTE, "Link down\n");
 			return (LINK_STATE_DOWN);
 		}
 	}
 
-	return (LINK_STATE_UP);
+	dev_err(sc->sc_dev, CE_NOTE, "Link assumed up\n");
 
+	return (LINK_STATE_UP);
 }
 
-static ddi_dma_attr_t virtio_net_hdr_dma_attr = {
+static ddi_dma_attr_t virtio_net_buf_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
 	0xFFFFFFFF,    /* high address */
@@ -370,40 +418,170 @@ static ddi_dma_attr_t virtio_net_hdr_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
-static ddi_device_acc_attr_t virtio_net_hdr_devattr = {
+static ddi_device_acc_attr_t virtio_net_bufattr = {
 	DDI_DEVICE_ATTR_V0,
-	DDI_STRUCTURE_LE_ACC,
+	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
 };
 
-/* allocate memory */
+
+
+static int virtio_net_alloc_buffers(struct vioif_softc *sc)
+{
+	size_t len;
+	unsigned int nsegments;
+	int rxqsize, txqsize;
+	int i;
+	int r = ENOMEM;
+	struct vioif_buf *buf;
+	ddi_dma_cookie_t dmac;
+
+	rxqsize = sc->sc_vq[0].vq_num;
+	txqsize = sc->sc_vq[1].vq_num;
+
+//	TRACE;
+
+	sc->sc_rxbufs = kmem_zalloc(sizeof(struct vioif_buf) * rxqsize,
+		KM_SLEEP);
+	if (!sc->sc_rxbufs) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate rx buffers array");
+		goto exit_alloc;
+	}
+
+	sc->sc_txbufs = kmem_zalloc(sizeof(struct vioif_buf) * txqsize,
+		KM_SLEEP);
+	if (!sc->sc_txbufs) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate tx buffers array");
+		goto exit_alloc;
+	}
+
+	for (i = 0 ; i < rxqsize; i++) {
+		buf = &sc->sc_rxbufs[i];
+
+		if (ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_buf_dma_attr,
+			DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
+			
+			dev_err(sc->sc_dev, CE_WARN,
+				"Can't allocate dma handle for rx buffer %d", i);
+			goto exit;
+		}
+
+		if (ddi_dma_mem_alloc(buf->b_dmah, VIOIF_RX_SIZE,
+			&virtio_net_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			NULL, &buf->b_buf, &len, &buf->b_acch)) {
+
+			dev_err(sc->sc_dev, CE_WARN,
+				"Can't allocate rx buffer %d", i);
+			goto exit;
+		}
+
+		if (ddi_dma_addr_bind_handle(buf->b_dmah, NULL, buf->b_buf,
+			len, DDI_DMA_READ | DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			NULL, &dmac, &nsegments)) {
+			
+			dev_err(sc->sc_dev, CE_WARN, "Can't bind tx buffer %d", i);
+
+			goto exit;
+		}
+
+		/* We asked for a single segment */
+		ASSERT(nsegments == 1);
+		ASSERT(len >= VIOIF_TX_SIZE);
+
+		buf->b_paddr = dmac.dmac_address;
+//		sc->sc_vq[0].vq_entries[i].qe_desc->addr = dmac.dmac_address;
+	}
+
+	for (i = 0 ; i < txqsize; i++) {
+		buf = &sc->sc_txbufs[i];
+
+		if (ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_buf_dma_attr,
+			DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
+			
+			dev_err(sc->sc_dev, CE_WARN,
+				"Can't allocate dma handle for tx buffer %d", i);
+			goto exit;
+		}
+
+		if (ddi_dma_mem_alloc(buf->b_dmah, VIOIF_TX_SIZE,
+			&virtio_net_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			NULL, &buf->b_buf, &len, &buf->b_acch)) {
+
+
+			dev_err(sc->sc_dev, CE_WARN,
+				"Can't allocate tx buffer %d", i);
+			goto exit;
+		}
+
+		if (ddi_dma_addr_bind_handle(buf->b_dmah, NULL, buf->b_buf,
+			len, DDI_DMA_WRITE | DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			NULL, &dmac, &nsegments)) {
+			
+			dev_err(sc->sc_dev, CE_WARN, "Can't bind tx buffer %d", i);
+
+			goto exit;
+		}
+
+		/* We asked for a single segment */
+		ASSERT(segments == 1);
+		ASSERT(len >= VIOIF_TX_SIZE);
+
+		buf->b_paddr = dmac.dmac_address;
+
+//		sc->sc_vq[1].vq_entries[i].qe_desc->addr = dmac.dmac_address;
+	}
+
+	return (0);
+
+exit:
+	for (i = 0; i < txqsize; i++) {
+		buf = &sc->sc_txbufs[i];
+
+		if (buf->b_paddr) {
+			ddi_dma_unbind_handle(buf->b_dmah);
+		}
+
+		if (buf->b_acch) {
+			ddi_dma_mem_free(&buf->b_acch);
+		}
+
+		if (buf->b_dmah) {
+			ddi_dma_free_handle(&buf->b_dmah);
+		}
+	}
+
+	for (i = 0; i < rxqsize; i++) {
+		buf = &sc->sc_rxbufs[i];
+
+		if (buf->b_paddr) {
+			ddi_dma_unbind_handle(buf->b_dmah);
+		}
+
+		if (buf->b_acch) {
+			ddi_dma_mem_free(&buf->b_acch);
+		}
+
+		if (buf->b_dmah) {
+			ddi_dma_free_handle(&buf->b_dmah);
+		}
+	}
+exit_alloc:
+	if (sc->sc_rxbufs)
+		kmem_free(sc->sc_rxbufs, sizeof(struct vioif_buf) * rxqsize);
+
+	if (sc->sc_txbufs)
+		kmem_free(sc->sc_txbufs, sizeof(struct vioif_buf) * txqsize);
+
+	return (r);
+}
+
 /*
- * dma memory is used for:
- *   sc_rx_hdrs[slot]:	 metadata array for recieved frames (READ)
- *   sc_tx_hdrs[slot]:	 metadata array for frames to be sent (WRITE)
- *   sc_ctrl_cmd:	 command to be sent via ctrl vq (WRITE)
- *   sc_ctrl_status:	 return value for a command via ctrl vq (READ)
- *   sc_ctrl_rx:	 parameter for a VIRTIO_NET_CTRL_RX class command
- *			 (WRITE)
- *   sc_ctrl_mac_tbl_uc: unicast MAC address filter for a VIRTIO_NET_CTRL_MAC
- *			 class command (WRITE)
- *   sc_ctrl_mac_tbl_mc: multicast MAC address filter for a VIRTIO_NET_CTRL_MAC
- *			 class command (WRITE)
- * sc_ctrl_* structures are allocated only one each; they are protected by
- * sc_ctrl_inuse variable and sc_ctrl_wait condvar.
- */
-/*
- * dynamically allocated memory is used for:
- *   sc_rxhdr_dmamaps[slot]:	bus_dmamap_t array for sc_rx_hdrs[slot]
- *   sc_txhdr_dmamaps[slot]:	bus_dmamap_t array for sc_tx_hdrs[slot]
- *   sc_rx_dmamaps[slot]:	bus_dmamap_t array for recieved payload
- *   sc_tx_dmamaps[slot]:	bus_dmamap_t array for sent payload
- *   sc_rx_mbufs[slot]:		mbuf pointer array for recieved frames
- *   sc_tx_mbufs[slot]:		mbuf pointer array for sent frames
+ * 
  */
 static int
 virtio_net_alloc_mems(struct vioif_softc *sc)
 {
+/*
 	struct virtio_softc *vsc = &sc->sc_virtio;
 	int allocsize, allocsize2, r, rsegs, i;
 	void *vaddr;
@@ -411,289 +589,23 @@ virtio_net_alloc_mems(struct vioif_softc *sc)
 	unsigned int ncookies;
 	intptr_t p;
 	int rxqsize, txqsize;
-
-	TRACE;
-
-	rxqsize = sc->sc_vq[0].vq_num;
-	txqsize = sc->sc_vq[1].vq_num;
-
-	allocsize = sizeof(struct virtio_net_hdr) * rxqsize;
-	allocsize += sizeof(struct virtio_net_hdr) * txqsize;
-	if (vsc->sc_nvqs == 3) {
-		TRACE;
-		panic("Not implemented");
-#if 0
-		allocsize += sizeof(struct virtio_net_ctrl_cmd) * 1;
-		allocsize += sizeof(struct virtio_net_ctrl_status) * 1;
-		allocsize += sizeof(struct virtio_net_ctrl_rx) * 1;
-		allocsize += sizeof(struct virtio_net_ctrl_mac_tbl)
-			+ sizeof(struct virtio_net_ctrl_mac_tbl)
-			+ ETHERADDRL * VIRTIO_NET_CTRL_MAC_MAXENTRIES;
-#endif
-	}
-	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_hdr_dma_attr,
-		DDI_DMA_SLEEP, NULL, &sc->sc_hdr_dma_handle);
-	if (r) {
-		dev_err(sc->sc_dev, CE_WARN,
-			"Failed to allocate dma handle for data headers");
-		goto out;
-	}
-
-	r = ddi_dma_mem_alloc(sc->sc_hdr_dma_handle, allocsize, &virtio_net_hdr_devattr,
-		DDI_DMA_CONSISTENT, DDI_DMA_SLEEP, NULL,
-		(caddr_t *)&sc->sc_rx_hdrs, &len, &sc->sc_hdr_dma_acch);
-	if (r) {
-		dev_err(sc->sc_dev, CE_WARN,
-			"Failed to alocate dma memory for data headers");
-		goto out_mem;
-	}
-
-	r = ddi_dma_addr_bind_handle(sc->sc_hdr_dma_handle, NULL,
-		(caddr_t) sc->sc_rx_hdrs, allocsize, DDI_DMA_RDWR | DDI_DMA_CONSISTENT,
-		DDI_DMA_SLEEP, NULL, &sc->sc_hdr_dma_cookie, &ncookies);
-	if (r != DDI_DMA_MAPPED) {
-		dev_err(sc->sc_dev, CE_WARN,
-			"Failed to bind dma memory for data headers");
-		goto out_bind;
-	}
-
-	/* We asked for a single segment */
-	ASSERT(ncookies == 1);
-#if 0
-	r = bus_dmamem_alloc(vsc->sc_dmat, allocsize, 0, 0,
-			     &sc->sc_hdr_segs[0], 1, &rsegs, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "DMA memory allocation failed, size %d, "
-				 "error code %d\n", allocsize, r);
-		goto err_none;
-	}
-	r = bus_dmamem_map(vsc->sc_dmat,
-			   &sc->sc_hdr_segs[0], 1, allocsize,
-			   &vaddr, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		aprint_error_dev(sc->sc_dev,
-				 "DMA memory map failed, "
-				 "error code %d\n", r);
-		goto err_dmamem_alloc;
-	}
-#endif
-//	sc->sc_rx_hdrs = vaddr;
-	memset(sc->sc_rx_hdrs, 0, allocsize);
-	p = (intptr_t) vaddr;
-	p += sizeof(struct virtio_net_hdr) * rxqsize;
-#define P(name,size)	do { sc->sc_ ##name = (void*) p;	\
-			     p += size; } while (0)
-	P(tx_hdrs, sizeof(struct virtio_net_hdr) * txqsize);
-	if (vsc->sc_nvqs == 3) {
-		TRACE;
-		panic("Not implemented");
-#if 0
-		P(ctrl_cmd, sizeof(struct virtio_net_ctrl_cmd));
-		P(ctrl_status, sizeof(struct virtio_net_ctrl_status));
-		P(ctrl_rx, sizeof(struct virtio_net_ctrl_rx));
-		P(ctrl_mac_tbl_uc, sizeof(struct virtio_net_ctrl_mac_tbl));
-		P(ctrl_mac_tbl_mc,
-		  (sizeof(struct virtio_net_ctrl_mac_tbl)
-		   + ETHER_ADDR_LEN * VIRTIO_NET_CTRL_MAC_MAXENTRIES));
-#endif
-	}
-#undef P
-
-//	allocsize2 = sizeof(bus_dmamap_t) * (rxqsize + txqsize);
-//	allocsize2 += sizeof(bus_dmamap_t) * (rxqsize + txqsize);
-//	allocsize2 = sizeof(struct mbuf_desc) * (rxqsize + txqsize);
-	sc->sc_rx_mbuf_descs =
-		kmem_zalloc(sizeof(struct mbuf_desc) * (rxqsize + txqsize),
-			KM_SLEEP);
-
-	if (!sc->sc_rx_mbuf_descs)
-		goto out_alloc_desc;
-
-	sc->sc_tx_mbuf_descs = sc->sc_rx_mbuf_descs + rxqsize;
-/*	
-	sc->sc_txhdr_dmamaps = sc->sc_arrays + rxqsize;
-	sc->sc_rx_dmamaps = sc->sc_txhdr_dmamaps + txqsize;
-	sc->sc_tx_dmamaps = sc->sc_rx_dmamaps + rxqsize;
-	sc->sc_rx_mbufs = (void*) (sc->sc_tx_dmamaps + txqsize);
-	sc->sc_tx_mbufs = sc->sc_rx_mbufs + rxqsize;
 */
+	int r;
 
-#if 0
-#define C(map, buf, size, nsegs, rw, usage)				\
-	do {								\
-		r = bus_dmamap_create(vsc->sc_dmat, size, nsegs, size, 0, \
-				      BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW,	\
-				      &sc->sc_ ##map);			\
-		if (r != 0) {						\
-			aprint_error_dev(sc->sc_dev,			\
-					 usage " dmamap creation failed, " \
-					 "error code %d\n", r);		\
-					 goto err_reqs;			\
-		}							\
-	} while (0)
-#define C_L1(map, buf, size, nsegs, rw, usage)				\
-	C(map, buf, size, nsegs, rw, usage);				\
-	do {								\
-		r = bus_dmamap_load(vsc->sc_dmat, sc->sc_ ##map,	\
-				    &sc->sc_ ##buf, size, NULL,		\
-				    BUS_DMA_ ##rw | BUS_DMA_NOWAIT);	\
-		if (r != 0) {						\
-			aprint_error_dev(sc->sc_dev,			\
-					 usage " dmamap load failed, "	\
-					 "error code %d\n", r);		\
-			goto err_reqs;					\
-		}							\
-	} while (0)
-#define C_L2(map, buf, size, nsegs, rw, usage)				\
-	C(map, buf, size, nsegs, rw, usage);				\
-	do {								\
-		r = bus_dmamap_load(vsc->sc_dmat, sc->sc_ ##map,	\
-				    sc->sc_ ##buf, size, NULL,		\
-				    BUS_DMA_ ##rw | BUS_DMA_NOWAIT);	\
-		if (r != 0) {						\
-			aprint_error_dev(sc->sc_dev,			\
-					 usage " dmamap load failed, "	\
-					 "error code %d\n", r);		\
-			goto err_reqs;					\
-		}							\
-	} while (0)
-	for (i = 0; i < rxqsize; i++) {
-		C_L1(rxhdr_dmamaps[i], rx_hdrs[i],
-		    sizeof(struct virtio_net_hdr), 1,
-		    READ, "rx header");
-		C(rx_dmamaps[i], NULL, MCLBYTES, 1, 0, "rx payload");
-	}
+//	TRACE;
 
-	for (i = 0; i < txqsize; i++) {
-		C_L1(txhdr_dmamaps[i], rx_hdrs[i],
-		    sizeof(struct virtio_net_hdr), 1,
-		    WRITE, "tx header");
-		C(tx_dmamaps[i], NULL, ETHER_MAX_LEN, 256 /* XXX */, 0,
-		  "tx payload");
-	}
-#endif
+//	rxqsize = sc->sc_vq[0].vq_num;
+//	txqsize = sc->sc_vq[1].vq_num;
 
-	/* Allocate dma handles for rx and tx segments. */
-	for (i = 0; i < rxqsize + txqsize; i++) {
-		/* tx desc follow right after th rx descs. */
-		r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_hdr_dma_attr,
-			DDI_DMA_SLEEP, NULL, &sc->sc_rx_mbuf_descs[i].md_dma_handle);
-		if (r) {
-			dev_err(sc->sc_dev, CE_WARN,
-				"Failed to allocate dma handle for data headers");
-			goto out_alloc_desc_handle;
-		}
-#if 0
+	r = virtio_net_alloc_buffers(sc);
+	if (r)
+		goto exit;
 
-		C_L1(rxhdr_dmamaps[i], rx_hdrs[i],
-		    sizeof(struct virtio_net_hdr), 1,
-		    READ, "rx header");
-		C(rx_dmamaps[i], NULL, MCLBYTES, 1, 0, "rx payload");
-#endif
-	}
-#if 0
-	for (i = 0; i < txqsize; i++) {
-		C_L1(txhdr_dmamaps[i], rx_hdrs[i],
-		    sizeof(struct virtio_net_hdr), 1,
-		    WRITE, "tx header");
-		C(tx_dmamaps[i], NULL, ETHER_MAX_LEN, 256 /* XXX */, 0,
-		  "tx payload");
-	}
-#endif
-	if (vsc->sc_nvqs == 3) {
-		TRACE;
-
-		panic("Not implemented");
-#if 0
-		/* control vq class & command */
-		C_L2(ctrl_cmd_dmamap, ctrl_cmd,
-		    sizeof(struct virtio_net_ctrl_cmd), 1, WRITE,
-		    "control command");
-		
-		/* control vq status */
-		C_L2(ctrl_status_dmamap, ctrl_status,
-		    sizeof(struct virtio_net_ctrl_status), 1, READ,
-		    "control status");
-
-		/* control vq rx mode command parameter */
-		C_L2(ctrl_rx_dmamap, ctrl_rx,
-		    sizeof(struct virtio_net_ctrl_rx), 1, WRITE,
-		    "rx mode control command");
-
-		/* control vq MAC filter table for unicast */
-		/* do not load now since its length is variable */
-		C(ctrl_tbl_uc_dmamap, NULL,
-		  sizeof(struct virtio_net_ctrl_mac_tbl) + 0, 1, WRITE,
-		  "unicast MAC address filter command");
-
-		/* control vq MAC filter table for multicast */
-		C(ctrl_tbl_mc_dmamap, NULL,
-		  (sizeof(struct virtio_net_ctrl_mac_tbl)
-		   + ETHER_ADDR_LEN * VIRTIO_NET_CTRL_MAC_MAXENTRIES),
-		  1, WRITE, "multicast MAC address filter command");
-#endif
-	}
-//#undef C_L2
-//#undef C_L1
-//#undef C
-
-	return (DDI_SUCCESS);
-
-out_alloc_desc_handle:
-	for (i = 0; i < rxqsize + txqsize; i++) {
-		if (sc->sc_rx_mbuf_descs[i].md_dma_handle) {
-			ddi_dma_free_handle(&sc->sc_hdr_dma_handle);
-		} else {
-			break;
-		}
-	}
-
-	kmem_free(sc->sc_rx_mbuf_descs,
-		sizeof(struct mbuf_desc) * (rxqsize + txqsize));
-
-out_alloc_desc:
-	ddi_dma_unbind_handle(sc->sc_hdr_dma_handle);
-out_bind:
-	ddi_dma_mem_free(&sc->sc_hdr_dma_acch);
-out_mem:
-	ddi_dma_free_handle(&sc->sc_hdr_dma_handle);
-out:
+	return (0);
+exit:
 	return (r);
-#if 0
-err_reqs:
-#define D(map)								\
-	do {								\
-		if (sc->sc_ ##map) {					\
-			bus_dmamap_destroy(vsc->sc_dmat, sc->sc_ ##map); \
-			sc->sc_ ##map = NULL;				\
-		}							\
-	} while (0)
-	D(ctrl_tbl_mc_dmamap);
-	D(ctrl_tbl_uc_dmamap);
-	D(ctrl_rx_dmamap);
-	D(ctrl_status_dmamap);
-	D(ctrl_cmd_dmamap);
-	for (i = 0; i < txqsize; i++) {
-		D(tx_dmamaps[i]);
-		D(txhdr_dmamaps[i]);
-	}
-	for (i = 0; i < rxqsize; i++) {
-		D(rx_dmamaps[i]);
-		D(rxhdr_dmamaps[i]);
-	}
-#undef D
-	if (sc->sc_arrays) {
-		kmem_free(sc->sc_arrays, allocsize2);
-		sc->sc_arrays = 0;
-	}
-err_dmamem_map:
-	bus_dmamem_unmap(vsc->sc_dmat, sc->sc_hdrs, allocsize);
-err_dmamem_alloc:
-	bus_dmamem_free(vsc->sc_dmat, &sc->sc_hdr_segs[0], 1);
-err_none:
-	return -1;
-#endif
+
+
 }
 
 int
@@ -816,41 +728,151 @@ virtio_net_unicst(void *arg, const uint8_t *macaddr)
 #endif
 }
 
+static bool
+virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
+{
+//	struct vioif_softc *sc = ifp->if_softc;
+	struct virtio_softc *vsc = &sc->sc_virtio;
+	struct virtqueue *vq = &sc->sc_vq[1]; /* tx vq */
+	struct vq_entry *ve;
+	struct vq_entry *ve_hdr;
+	struct vring_desc *vd;
+	struct vring_desc *vd_hdr;
+	mblk_t *m;
+
+	int i;
+
+	struct vioif_buf *buf;
+	struct vioif_buf *buf_hdr;
+	struct virtio_net_hdr *hdr;
+	int nsegments = 0;
+	size_t msg_size = 0;
+
+	static int once = 0;
+
+//	int queued = 0, retry = 0;
+//	struct vq_entry *hdr_ve;
+//	struct virtio_net_hdr *hdr;
+
+	TRACE;
+
+//	cmn_err(CE_NOTE, "once = %d", once);
+
+//	if (once++ > 1) {
+//		TRACE;
+//		return (B_FALSE);
+//	}
+
+
+	msg_size = msgsize(mb);
+	if (msg_size > ETHERVLANMTU) {
+		dev_err(sc->sc_dev, CE_WARN, "Message too big");
+		freemsg(mb);
+		return (B_TRUE);
+	}
+
+	cmn_err(CE_NOTE, "msg_size = %ld", msg_size);
+
+	ve_hdr = vq_alloc_entry(vq);
+	if (!ve_hdr) {
+		TRACE;
+		/* Out of free descriptors - try later.*/
+		return (B_FALSE);
+	}
+	ve = vq_alloc_entry(vq);
+	if (!ve) {
+		TRACE;
+		/* Out of free descriptors - try later.*/
+		return (B_FALSE);
+	}
+
+	buf_hdr = &sc->sc_txbufs[ve_hdr->qe_index];
+	buf = &sc->sc_txbufs[ve->qe_index];
+	cmn_err(CE_NOTE, "hdr idx: %d, buf idx: %d", ve_hdr->qe_index, ve->qe_index);
+
+	memset(buf_hdr->b_buf, 0, sizeof(struct virtio_net_hdr));
+	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
+		DDI_DMA_SYNC_FORDEV);
+
+	virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
+		sizeof(struct virtio_net_hdr), B_TRUE);
+
+	mcopymsg(mb, buf->b_buf);
+	ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
+	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr, msg_size, B_TRUE);
+
+
+//	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
+//		DDI_DMA_SYNC_FORDEV);
+
+	ve_hdr->qe_next = ve;
+
+//	TRACE;
+	vitio_push_chain(vq, ve_hdr);
+//	TRACE;
+
+#if 0
+	mutex_enter(&vq->vq_aring_lock);
+
+	cmn_err(CE_NOTE, "vq->vq_avail_idx = %d\n", vq->vq_avail_idx);
+
+	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = ve_hdr->qe_index;
+	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = ve->qe_index;
+
+	ddi_dma_sync(vq->vq_dma_handle,
+		vq->vq_availoffset,
+		sizeof(struct vring_avail) + sizeof(uint16_t) * vq->vq_num,
+		DDI_DMA_SYNC_FORDEV);
+
+	vq->vq_avail->idx = vq->vq_avail_idx;
+	vq->vq_avail->flags = /*VRING_AVAIL_F_NO_INTERRUPT*/ 0;
+/*
+	ddi_dma_sync(vq->vq_dma_handle,
+		vq->vq_availoffset,
+		sizeof(struct vring_avail) + sizeof(uint16_t) * vq->vq_num,
+		DDI_DMA_SYNC_FORDEV);
+
+
+	ddi_dma_sync(vq->vq_dma_handle, sizeof(struct vring_desc) * ve->qe_index,
+			sizeof(struct vring_desc), DDI_DMA_SYNC_FORDEV);
+*/
+	ddi_dma_sync(vq->vq_dma_handle, 0,
+			0x4000, DDI_DMA_SYNC_FORDEV);
+	cmn_err(CE_NOTE, "idx = %d", vq->vq_avail->idx);
+	cmn_err(CE_NOTE, "vq->vq_used->flags = %x", vq->vq_used->flags);
+
+	mutex_exit(&vq->vq_aring_lock);
+
+	ddi_put16(vsc->sc_ioh,
+		(uint16_t *) (vsc->sc_io_addr + VIRTIO_CONFIG_QUEUE_NOTIFY),
+		vq->vq_index);
+#endif
+	return (B_TRUE);
+}
+
 mblk_t *
 virtio_net_tx(void *arg, mblk_t *mp)
 {
-	TRACE;
-	return NULL;
-#if 0
-	afe_t	*afep = arg;
+	struct vioif_softc *sc = arg;
 	mblk_t	*nmp;
 
-	mutex_enter(&afep->afe_xmtlock);
-
-	if (afep->afe_flags & AFE_SUSPENDED) {
-		while ((nmp = mp) != NULL) {
-			afep->afe_carrier_errors++;
-			mp = mp->b_next;
-			freemsg(nmp);
-		}
-		mutex_exit(&afep->afe_xmtlock);
-		return (NULL);
-	}
+	TRACE;
+	mutex_enter(&sc->sc_tx_lock);
 
 	while (mp != NULL) {
 		nmp = mp->b_next;
 		mp->b_next = NULL;
 
-		if (!afe_send(afep, mp)) {
+		if (!virtio_net_send(sc, mp)) {
 			mp->b_next = nmp;
 			break;
 		}
 		mp = nmp;
 	}
-	mutex_exit(&afep->afe_xmtlock);
+	mutex_exit(&sc->sc_tx_lock);
+//	mutex_exit(&afep->afe_xmtlock);
 
 	return (mp);
-#endif
 }
 
 int
@@ -860,31 +882,11 @@ virtio_net_start(void *arg)
 
 	TRACE;
 
-//	virtio_net_link_up(sc);
-
-	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
-
-	/* On start, pre-fill the rx queue. */
+	mac_link_update(sc->sc_mac_handle,
+		virtio_net_link_state(sc));
 
 
 	return (DDI_SUCCESS);
-#if 0
-	afe_t	*afep = arg;
-
-	/* grab exclusive access to the card */
-	mutex_enter(&afep->afe_intrlock);
-	mutex_enter(&afep->afe_xmtlock);
-
-	afe_startall(afep);
-	afep->afe_flags |= AFE_RUNNING;
-
-	mutex_exit(&afep->afe_xmtlock);
-	mutex_exit(&afep->afe_intrlock);
-
-	mii_start(afep->afe_mii);
-
-	return (0);
-#endif
 }
 
 void
@@ -893,31 +895,13 @@ virtio_net_stop(void *arg)
 	struct vioif_softc *sc = arg;
 	TRACE;
 	
-//	virtio_net_link_down(sc);
-	mac_link_update(sc->sc_mac_handle, LINK_STATE_UP);
-	return;
-#if 0
-	afe_t	*afep = arg;
-
-	mii_stop(afep->afe_mii);
-
-	/* exclusive access to the hardware! */
-	mutex_enter(&afep->afe_intrlock);
-	mutex_enter(&afep->afe_xmtlock);
-
-	afe_stopall(afep);
-	afep->afe_flags &= ~AFE_RUNNING;
-
-	mutex_exit(&afep->afe_xmtlock);
-	mutex_exit(&afep->afe_intrlock);
-#endif
 }
 
 
 static int
 virtio_net_stat(void *arg, uint_t stat, uint64_t *val)
 {
-	TRACE;
+//	TRACE;
 	cmn_err(CE_NOTE, "stat = %x\n", stat);
 	switch (stat) {
 		case MAC_STAT_IFSPEED:
@@ -932,145 +916,47 @@ virtio_net_stat(void *arg, uint_t stat, uint64_t *val)
 			return (ENOTSUP);
 	}
 
-	cmn_err(CE_NOTE, "val = %llu\n", *val);
+	cmn_err(CE_NOTE, "val = %lu\n", *val);
 
 	return (DDI_SUCCESS);
-
-#if 0
-	afe_t	*afep = arg;
-
-	mutex_enter(&afep->afe_xmtlock);
-	if ((afep->afe_flags & (AFE_RUNNING|AFE_SUSPENDED)) == AFE_RUNNING)
-		afe_reclaim(afep);
-	mutex_exit(&afep->afe_xmtlock);
-
-	if (mii_m_getstat(afep->afe_mii, stat, val) == 0) {
-		return (0);
-	}
-	switch (stat) {
-	case MAC_STAT_MULTIRCV:
-		*val = afep->afe_multircv;
-		break;
-
-	case MAC_STAT_BRDCSTRCV:
-		*val = afep->afe_brdcstrcv;
-		break;
-
-	case MAC_STAT_MULTIXMT:
-		*val = afep->afe_multixmt;
-		break;
-
-	case MAC_STAT_BRDCSTXMT:
-		*val = afep->afe_brdcstxmt;
-		break;
-
-	case MAC_STAT_IPACKETS:
-		*val = afep->afe_ipackets;
-		break;
-
-	case MAC_STAT_RBYTES:
-		*val = afep->afe_rbytes;
-		break;
-
-	case MAC_STAT_OPACKETS:
-		*val = afep->afe_opackets;
-		break;
-
-	case MAC_STAT_OBYTES:
-		*val = afep->afe_obytes;
-		break;
-
-	case MAC_STAT_NORCVBUF:
-		*val = afep->afe_norcvbuf;
-		break;
-
-	case MAC_STAT_NOXMTBUF:
-		*val = 0;
-		break;
-
-	case MAC_STAT_COLLISIONS:
-		*val = afep->afe_collisions;
-		break;
-
-	case MAC_STAT_IERRORS:
-		*val = afep->afe_errrcv;
-		break;
-
-	case MAC_STAT_OERRORS:
-		*val = afep->afe_errxmt;
-		break;
-
-	case ETHER_STAT_ALIGN_ERRORS:
-		*val = afep->afe_align_errors;
-		break;
-
-	case ETHER_STAT_FCS_ERRORS:
-		*val = afep->afe_fcs_errors;
-		break;
-
-	case ETHER_STAT_SQE_ERRORS:
-		*val = afep->afe_sqe_errors;
-		break;
-
-	case ETHER_STAT_DEFER_XMTS:
-		*val = afep->afe_defer_xmts;
-		break;
-
-	case ETHER_STAT_FIRST_COLLISIONS:
-		*val = afep->afe_first_collisions;
-		break;
-
-	case ETHER_STAT_MULTI_COLLISIONS:
-		*val = afep->afe_multi_collisions;
-		break;
-
-	case ETHER_STAT_TX_LATE_COLLISIONS:
-		*val = afep->afe_tx_late_collisions;
-		break;
-
-	case ETHER_STAT_EX_COLLISIONS:
-		*val = afep->afe_ex_collisions;
-		break;
-
-	case ETHER_STAT_MACXMT_ERRORS:
-		*val = afep->afe_macxmt_errors;
-		break;
-
-	case ETHER_STAT_CARRIER_ERRORS:
-		*val = afep->afe_carrier_errors;
-		break;
-
-	case ETHER_STAT_TOOLONG_ERRORS:
-		*val = afep->afe_toolong_errors;
-		break;
-
-	case ETHER_STAT_MACRCV_ERRORS:
-		*val = afep->afe_macrcv_errors;
-		break;
-
-	case MAC_STAT_OVERFLOWS:
-		*val = afep->afe_overflow;
-		break;
-
-	case MAC_STAT_UNDERFLOWS:
-		*val = afep->afe_underflow;
-		break;
-
-	case ETHER_STAT_TOOSHORT_ERRORS:
-		*val = afep->afe_runt;
-		break;
-
-	case ETHER_STAT_JABBER_ERRORS:
-		*val = afep->afe_jabber;
-		break;
-
-	default:
-		return (ENOTSUP);
-	}
-	return (0);
-#endif
 }
 
+static void voif_reclaim_used_tx(struct vioif_softc *sc)
+{
+	struct virtqueue *vq = &sc->sc_vq[1];
+	struct vq_entry *ve;
+
+	TRACE;
+
+	mutex_enter(&sc->sc_tx_lock);
+	while ((ve = virtio_pull_chain(vq))) {
+		TRACE;
+		virtio_free_chain(vq, ve);		
+	}
+	mutex_exit(&sc->sc_tx_lock);
+}
+
+/*
+ * Interrupt service routine.
+ */
+unsigned int
+vioif_intr(caddr_t arg)
+{
+	uint8_t isr_status;
+	struct vioif_softc *sc = (void *)arg;
+
+	isr_status = ddi_get8(sc->sc_virtio.sc_ioh,
+		(uint8_t *) (sc->sc_virtio.sc_io_addr + VIRTIO_CONFIG_ISR_STATUS));
+
+	cmn_err(CE_NOTE, "Isr! status = %x\n", isr_status);
+
+	if (!isr_status)
+		return DDI_INTR_UNCLAIMED;
+
+	voif_reclaim_used_tx(sc);
+
+	return DDI_INTR_CLAIMED;
+}
 
 
 static mac_callbacks_t afe_m_callbacks = {
@@ -1207,8 +1093,8 @@ virtio_net_dev_features(struct vioif_softc *sc)
 			VIRTIO_NET_F_STATUS |
 //			VIRTIO_NET_F_CTRL_VQ |
 //			VIRTIO_NET_F_CTRL_RX |
-			VIRTIO_F_NOTIFY_ON_EMPTY |
-			VRING_DESC_F_INDIRECT);
+			VIRTIO_F_NOTIFY_ON_EMPTY /*|
+			VRING_DESC_F_INDIRECT*/);
 
 #if 0
 	if (!(sc->sc.features & VIRTIO_RING_F_INDIRECT_DESC)) {
@@ -1271,11 +1157,14 @@ virtio_net_get_mac(struct vioif_softc *sc)
 static int
 virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
-	int ret, instance, type, intr_types;
+	int ret, instance, intr_types;
 	struct vioif_softc *sc;
+	struct virtio_softc *vsc;
 	mac_register_t *macp;
 	ddi_acc_handle_t pci_conf;
+	struct vioif_buf *buf;
 	TRACE;
+
 
 	instance = ddi_get_instance(devinfo);
 
@@ -1297,9 +1186,11 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	sc = kmem_zalloc(sizeof (struct vioif_softc), KM_SLEEP);
 	ddi_set_driver_private(devinfo, sc);
+
+	vsc = &sc->sc_virtio;
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
-	sc->sc_virtio.sc_dev = devinfo;
+	vsc->sc_dev = devinfo;
 
 	ret = pci_config_setup(devinfo, &pci_conf);
 	if (ret) {
@@ -1312,7 +1203,42 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	if (ret)
 		goto exit_match;
 
-	pci_config_teardown(&pci_conf);
+//	/* get the interrupt block cookie */
+//	if (ddi_get_iblock_cookie(devinfo, 0, &sc->sc_icookie) != DDI_SUCCESS) {
+//		dev_err(devinfo, CE_WARN,"ddi_get_iblock_cookie failed");
+//		goto exit_int_prio;
+//	}
+/* PCI configuration registers */
+#define PCI_VID         0x00    /* Loaded vendor ID */
+#define PCI_DID         0x02    /* Loaded device ID */
+#define PCI_CMD         0x04    /* Configuration command register */
+#define PCI_STAT        0x06    /* Configuration status register */
+#define PCI_RID         0x08    /* Revision ID */
+#define PCI_CLS         0x0c    /* Cache line size */
+#define PCI_SVID        0x2c    /* Subsystem vendor ID */
+#define PCI_SSID        0x2e    /* Subsystem ID */
+#define PCI_MINGNT      0x3e    /* Minimum Grant */
+#define PCI_MAXLAT      0x3f    /* Maximum latency */
+#define PCI_SIG         0x80    /* Signature of AN983 */ 
+#define PCI_PMR0        0xc0    /* Power Management Register 0 */
+#define PCI_PMR1        0xc4    /* Power Management Register 1 */
+
+/*
+ * Bits for PCI command register.
+ */
+#define PCI_CMD_MWIE    0x0010  /* memory write-invalidate enable */
+#define PCI_CMD_BME     0x0004  /* bus master enable */
+#define PCI_CMD_MAE     0x0002  /* memory access enable */
+#define PCI_CMD_IOE     0x0001  /* I/O access enable */
+
+
+         /*
+         * Enable bus master, IO space, and memory space accesses.
+         */
+//        pci_config_put16(pci_conf, PCI_CMD,
+  //          pci_config_get16(pci_conf, PCI_CMD) | PCI_CMD_BME | PCI_CMD_MAE); 
+
+//	pci_config_teardown(&pci_conf);
 
 	/* Determine which types of interrupts supported */
 	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
@@ -1320,6 +1246,27 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		dev_err(devinfo, CE_WARN, "fixed type interrupt is not supported");
 		goto exit_inttype;
 	}
+
+        if (ddi_get_iblock_cookie(devinfo, 0, &vsc->sc_icookie)) {
+                dev_err(devinfo, CE_WARN, "ddi_get_iblock_cookie failed");
+
+		goto exit_cookie;
+        }
+
+
+	/*
+	 * Initialize interrupt kstat.  This should not normally fail, since
+	 * we don't use a persistent stat.  We do it this way to avoid having
+	 * to test for it at run time on the hot path.
+	 */
+	sc->sc_intrstat = kstat_create("virtio_net", instance, "intr", "controller",
+		KSTAT_TYPE_INTR, 1, 0);
+	if (sc->sc_intrstat == NULL) {
+		dev_err(devinfo, CE_WARN, "kstat_create failed");
+		goto exit_intrstat;
+	}
+	kstat_install(sc->sc_intrstat);
+
 
 	/* map BAR0 */
 	ret = ddi_regs_map_setup(devinfo, 1, (caddr_t *)&sc->sc_virtio.sc_io_addr,
@@ -1341,7 +1288,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	virtio_net_get_mac(sc);
 
-	ret = virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[0], 0, 2, "rx");
+	ret = virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[0], 0, VIOIF_RX_QLEN, "rx");
 	if (ret) {
 		goto exit_alloc1;
 	}
@@ -1350,13 +1297,13 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 //	sc->sc_virtio_vq[0].vq_done = vioif_rx_vq_done;
 
 	if (virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[1], 1,
-		VIRTIO_NET_TX_MAXNSEGS + 1, "tx") != 0) {
+			VIOIF_TX_QLEN, "tx") != 0)
 		goto exit_alloc2;
-	}
+
 	sc->sc_nvqs = 2;
 //	sc->sc_virtio_vq[1].vq_done = vioif_tx_vq_done;
-	virtio_start_vq_intr(&sc->sc_vq[0]);
-	virtio_stop_vq_intr(&sc->sc_vq[1]); /* not urgent; do it later */
+//	virtio_start_vq_intr(&sc->sc_vq[0]);
+//	virtio_stop_vq_intr(&sc->sc_vq[1]); /* not urgent; do it later */
 /*
 	if ((features & VIRTIO_NET_F_CTRL_VQ)
 	    && (features & VIRTIO_NET_F_CTRL_RX)) {
@@ -1372,12 +1319,24 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		}
 	}
 */
+
+	cmn_err(CE_NOTE, "vq[0].vq_num = %d, vq[1].vq_num = %d",
+			sc->sc_vq[0].vq_num, sc->sc_vq[1].vq_num);
 	if (virtio_net_alloc_mems(sc))
 		goto exit_alloc_mems;
 
 	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
 		dev_err(devinfo, CE_WARN, "Failed to alocate a mac_register");
 		goto exit_macalloc;
+	}
+
+	/*
+	* Establish interrupt handler.
+	*/
+	if (ddi_add_intr(devinfo, 0, NULL, NULL,
+			vioif_intr, (caddr_t)sc)) {
+		dev_err(devinfo, CE_WARN, "unable to add interrupt");
+		goto exit_int;
 	}
 
 	macp->m_type_ident = MAC_PLUGIN_IDENT_ETHER;
@@ -1388,7 +1347,12 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	macp->m_min_sdu = 0;
 	macp->m_max_sdu = ETHERMTU;
 	macp->m_margin = VLAN_TAGSZ;
+	mutex_init(&sc->sc_tx_lock, "virtio",
+			MUTEX_DRIVER, vsc->sc_icookie);
 
+
+
+	dev_err(sc->sc_dev, CE_NOTE, "Registering the mac!");
 	ret = mac_register(macp, &sc->sc_mac_handle);
 	if (ret) {
 		dev_err(devinfo, CE_WARN, "Failed to register the device");
@@ -1399,9 +1363,16 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
+
+	buf = &sc->sc_txbufs[0];
+	cmn_err(CE_NOTE, "## buf = %p, buf[0].b_buf = %p", buf, buf->b_buf);
+	dev_err(sc->sc_dev, CE_NOTE, "Attach done!");
+
 	return (DDI_SUCCESS);
 
 exit_register:
+	ddi_remove_intr(devinfo, 0, vsc->sc_icookie);
+exit_int:
 	mac_free(macp);
 exit_macalloc:
 //	virtio_net_free_mems(sc);
@@ -1413,8 +1384,12 @@ exit_alloc1:
 exit_features:
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
+exit_intrstat:
 exit_map:
+	kstat_delete(sc->sc_intrstat);
 exit_inttype:
+exit_cookie:
+//exit_int_prio:
 exit_match:
 exit_pci_conf:
 	kmem_free(sc, sizeof (struct vioif_softc));
@@ -1456,7 +1431,7 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 {
 	struct vioif_softc *sc = ddi_get_driver_private(devinfo);
 
-	TRACE;
+//	TRACE;
 	switch (cmd) {
 	case DDI_DETACH:
 		break;
@@ -1475,9 +1450,11 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	}
 
 	mac_free(sc->sc_macp);
-	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[1]);
+	ddi_remove_intr(devinfo, 0, sc->sc_virtio.sc_icookie);
 	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[0]);
+	virtio_free_vq(&sc->sc_virtio, &sc->sc_vq[1]);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
+	kstat_delete(sc->sc_intrstat);
 //	pci_config_teardown(&sc->sc_virtio.pci_conf);
 	kmem_free(sc, sizeof (struct vioif_softc));
 

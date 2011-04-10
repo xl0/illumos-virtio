@@ -70,24 +70,35 @@
 #include <sys/cmn_err.h>
 #include <sys/list.h>
 
-#define TRACE { cmn_err (CE_NOTE, "%s:%d %s()\n", __FILE__, __LINE__, __func__); }
+#define TRACE { \
+	cmn_err (CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
+	/* delay(drv_usectohz(1000000)); */\
+}
 
+#define FAST_TRACE { \
+	cmn_err (CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
+}
 typedef boolean_t bool;
 #define __packed  __attribute__((packed))
 
 struct vq_entry {
 	list_node_t		qe_list;
+	uint16_t		qe_flags;
 	uint16_t		qe_index; /* index in vq_desc array */
 	/* followings are used only when it is the `head' entry */
-	int16_t			qe_next;     /* next enq slot */
-	bool			qe_indirect; /* 1 if using indirect */
-	struct vring_desc	*qe_desc_base;
-/*
-	void			*qe_vaddr;
+	struct vq_entry		*qe_next;
+//	int16_t			qe_next;     /* next enq slot */
+//	bool			qe_indirect; /* 1 if using indirect */
+	ddi_dma_handle_t	qe_dmah;
+	struct vring_desc	*qe_desc;
+#if 0
+	/* Set to the user-specific data container, like mbuf */
+	void			*qe_priv; 
+
 	ddi_dma_cookie_t	qe_dma_cookie;
 	ddi_dma_handle_t	qe_dma_handle;
 	ddi_acc_handle_t	qe_dma_acch;
-*/
+#endif
 };
 
 struct virtqueue {
@@ -96,7 +107,7 @@ struct virtqueue {
 	int			vq_index; /* queue number (0, 1, ...) */
 
 	/* vring pointers (KVA) */
-        struct vring_desc	*vq_desc;
+        struct vring_desc	*vq_descs;
         struct vring_avail	*vq_avail;
         struct vring_used	*vq_used;
 	void			*vq_indirect;
@@ -109,7 +120,7 @@ struct virtqueue {
 	ddi_dma_cookie_t	vq_dma_cookie;
 	ddi_dma_handle_t	vq_dma_handle;
 	ddi_acc_handle_t	vq_dma_acch;
-	unsigned int		vq_bytesize;
+//	unsigned int		vq_bytesize;
 //	bus_dmamap_t		vq_dmamap;
 
 	int			vq_maxsegsize;
@@ -142,8 +153,9 @@ struct virtio_softc {
 //	bus_dma_tag_t       virtio_dmat;
 
 
-	void			*sc_ipl; /* interrupt priority, set by the user */
+//	void			*sc_ipl; /* interrupt priority, set by the user */
 //	void			*sc_ih;
+	ddi_iblock_cookie_t     sc_icookie;
 
 //	bus_space_tag_t		sc_iot;
 	ddi_acc_handle_t	sc_ioh;
@@ -199,12 +211,16 @@ void virtio_write_device_config_2(struct virtio_softc *, int, uint16_t);
 void virtio_write_device_config_4(struct virtio_softc *, int, uint32_t);
 void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
 
-int virtio_alloc_vq(struct virtio_softc*, struct virtqueue*, int, int,
-		    const char*);
+int virtio_alloc_vq(struct virtio_softc *sc,
+		struct virtqueue *vq, int index,
+		int size, const char *name);
 int virtio_free_vq(struct virtio_softc*, struct virtqueue*);
 void virtio_reset(struct virtio_softc *);
 void virtio_reinit_start(struct virtio_softc *);
 void virtio_reinit_end(struct virtio_softc *);
+
+struct vq_entry * vq_alloc_entry(struct virtqueue *vq);
+void vq_free_entry(struct virtqueue *vq, struct vq_entry *qe);
 
 int virtio_enqueue_prep(struct virtio_softc*, struct virtqueue*, int*);
 int virtio_enqueue_reserve(struct virtio_softc*, struct virtqueue*, int, int);
@@ -223,5 +239,12 @@ void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);
 
 void virtio_show_features(struct virtio_softc *sc);
-void dev_err(dev_info_t *dip, int ce, char *fmt, ...);
+void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
+
+void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
+	uint32_t paddr, uint16_t len, bool write);
+void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe);
+struct vq_entry * virtio_pull_chain(struct virtqueue *vq);
+void virtio_free_chain(struct virtqueue *vq, struct vq_entry *ve);
+
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */
