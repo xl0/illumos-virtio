@@ -1,15 +1,19 @@
 
-CFLAGS=-D_KERNEL -m64 -xarch=sse2a -xmodel=kernel -g
+#CFLAGS=-D_KERNEL -m64 -xarch=sse2a -xmodel=kernel -g
+CFLAGS= -D_KERNEL -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -nodefaultlibs -Wall
+
 LDFLAGS=-r
 
-CC=/opt/SUNWspro/bin/cc
+#CC=/opt/SUNWspro/bin/cc
+CC=gcc
 LD=/usr/ccs/bin/ld
 
 all: virtio
 
 virtio: virtio.c virtiovar.h virtioreg.h
 	$(CC) $(CFLAGS) -c virtio.c -o virtio.o
-	$(LD) $(LDFLAGS) virtio.o -o virtio
+	$(CC) $(CFLAGS) -c util.c -o util.o
+	$(LD) $(LDFLAGS) virtio.o util.o -o virtio
 
 clean:
-	rm -f virtio virtio.o
+	rm -f virtio virtio.o util.o
