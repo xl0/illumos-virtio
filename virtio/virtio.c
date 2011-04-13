@@ -502,7 +502,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SIZE));
 	if (vq_size == 0) {
 		dev_err(sc->sc_dev, CE_WARN,
-			 "virtqueue not exist, index %d for %s\n",
+			 "virtqueue dest not exist, index %d for %s\n",
 			 index, name);
 		goto out;
 	}
@@ -513,9 +513,10 @@ virtio_alloc_vq(struct virtio_softc *sc,
 
 	/* allocsize1: descriptor table + avail ring + pad */
 	allocsize1 = VIRTQUEUE_ALIGN(sizeof(struct vring_desc) * vq_size
-				     + sizeof(uint16_t) * (2 + vq_size));
+				+ sizeof(struct vring_avail) +
+				+ sizeof(uint16_t) * vq_size);
 	/* allocsize2: used ring + pad */
-	allocsize2 = VIRTQUEUE_ALIGN(sizeof(uint16_t) * 2
+	allocsize2 = VIRTQUEUE_ALIGN(sizeof(struct vring_used)
 				     + sizeof(struct vring_used_elem) * vq_size);
 
 	allocsize = allocsize1 + allocsize2;
@@ -659,11 +660,12 @@ vq_alloc_entry(struct virtqueue *vq)
 		return NULL;
 	}
 	qe = list_remove_head(&vq->vq_freelist);
+	ASSERT(qe);
 
 	mutex_exit(&vq->vq_freelist_lock);
 
 	qe->qe_next = NULL;
-	qe->qe_flags = 0;
+//	qe->qe_flags = 0;
 	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
 	return qe;
@@ -682,11 +684,12 @@ void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 {
 	qe->qe_desc->addr = paddr;
 	qe->qe_desc->len = len;
+	qe->qe_desc->flags = 0;
 	qe->qe_dmah = dmah;
 
 	/* 'write' - from the driver's point of view*/
 	if (!write) {
-		qe->qe_flags = VRING_DESC_F_WRITE;
+		qe->qe_desc->flags = VRING_DESC_F_WRITE;
 	}
 }
 
@@ -698,7 +701,7 @@ static void virtio_notify(struct virtqueue *vq)
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
 		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
 
-	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
+//	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
 		ddi_put16(vsc->sc_ioh,
 			(uint16_t *) (vsc->sc_io_addr +
 				VIRTIO_CONFIG_QUEUE_NOTIFY),
@@ -728,7 +731,8 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 			qe->qe_desc->flags |= VRING_DESC_F_NEXT;
 			qe->qe_desc->next = qe->qe_next->qe_index;
 
-			cmn_err(CE_NOTE, "Pushing. tail idx = %d", qe->qe_index);
+			cmn_err(CE_NOTE, "Pushing. tail idx = %d",
+					qe->qe_next->qe_index);
 		}
 //		(void ) ddi_dma_sync(qe->qe_dmah, 0, qe->qe_desc->len,
 //				DDI_DMA_SYNC_FORDEV);
@@ -747,8 +751,7 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 	/* Do an other pass, adding the descs to the ring. Now with the
 	 * avail ring mutex held. */
 	//qe = head;
-	vq->vq_avail->ring[(vq->vq_avail_idx) % vq->vq_num] = head->qe_index;
-	vq->vq_avail_idx++;
+	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = head->qe_index;
 /*
 	do {
 		cmn_err(CE_NOTE, "Pushed descriptor %d to ring entry %d",
@@ -791,7 +794,7 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 }
 
 /* Get a chain of descriptors from the used ring, if one is available. */
-struct vq_entry * virtio_pull_chain(struct virtqueue *vq)
+struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 {
 	struct vq_entry *head;
 	struct vq_entry *tmp;
@@ -826,8 +829,9 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq)
 		sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORCPU);
 
 	slot = vq->vq_used->ring[usedidx].id;
+	*len = vq->vq_used->ring[usedidx].len;
 
-	cmn_err(CE_NOTE, "Pulled descriptor %d from slot %d", slot, usedidx);
+	cmn_err(CE_NOTE, "Pulled descriptor head %d (length %ld) from slot %d, vq %d", slot, *len, usedidx, vq->vq_index);
 
 	/* And the descriptor */
 	ddi_dma_sync(vq->vq_dma_handle,
@@ -835,17 +839,20 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq)
 		sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
 	head = tmp = &vq->vq_entries[slot];
 
+
 	/* Sanity-check the rest of the chain. */
 	while (tmp->qe_desc->flags & VRING_DESC_F_NEXT) {
-		ASSERT(tmp->qe_next);
-		ASSERT(tmp->qe_next->qe_index == tmp->qe_desc->next);
-
 		/* Sync the next descriptor */
 		ddi_dma_sync(vq->vq_dma_handle,
 			sizeof(struct vring_desc) * tmp->qe_next->qe_index,
 			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
 
+		ASSERT(tmp->qe_next);
+		ASSERT(tmp->qe_next->qe_index == tmp->qe_desc->next);
+
 		tmp = tmp->qe_next;
+
+		cmn_err(CE_NOTE, "Pulled tail descriptor %d", tmp->qe_index);
 		i++;
 #if 0
 		mutex_enter(&vq->vq_uring_lock);

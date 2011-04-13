@@ -83,8 +83,9 @@ typedef boolean_t bool;
 
 struct vq_entry {
 	list_node_t		qe_list;
-	uint16_t		qe_flags;
+//	uint16_t		qe_flags;
 	uint16_t		qe_index; /* index in vq_desc array */
+	uint16_t		qe_used_len; /* Set when the descriptor gets back from device*/
 	/* followings are used only when it is the `head' entry */
 	struct vq_entry		*qe_next;
 //	int16_t			qe_next;     /* next enq slot */
@@ -244,7 +245,7 @@ void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 	uint32_t paddr, uint16_t len, bool write);
 void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe);
-struct vq_entry * virtio_pull_chain(struct virtqueue *vq);
+struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct virtqueue *vq, struct vq_entry *ve);
 
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */
