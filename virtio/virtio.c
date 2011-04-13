@@ -711,7 +711,7 @@ static void virtio_notify(struct virtqueue *vq)
 
 void virtio_queue_show(struct virtqueue *vq)
 {
-	
+
 }
 
 void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
@@ -720,9 +720,9 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 	int i = 0;
 
 	ASSERT(qe);
-	TRACE;
+//	TRACE;
 
-	cmn_err(CE_NOTE, "Pushing. head idx = %d", head->qe_index);
+//	cmn_err(CE_NOTE, "Pushing. head idx = %d", head->qe_index);
 
 	/* Bind the descs together, paddr and len should be already
 	 * set with virtio_ve_set */
@@ -731,14 +731,14 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 			qe->qe_desc->flags |= VRING_DESC_F_NEXT;
 			qe->qe_desc->next = qe->qe_next->qe_index;
 
-			cmn_err(CE_NOTE, "Pushing. tail idx = %d",
-					qe->qe_next->qe_index);
+//			cmn_err(CE_NOTE, "Pushing. tail idx = %d",
+//					qe->qe_next->qe_index);
 		}
 //		(void ) ddi_dma_sync(qe->qe_dmah, 0, qe->qe_desc->len,
 //				DDI_DMA_SYNC_FORDEV);
 
 		/* Add the descriptor to the available ring, don't change idx yet.*/
-	
+
 //		vq->vq_avail->ring[vq->vq_avail_idx++] = qe->qe_index;
 
 		i++;
@@ -761,7 +761,7 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 		qe = qe->qe_next;
 	} while (qe);
 */
-	cmn_err(CE_NOTE, "pushed %d descriptors, head: %d",i, head->qe_index);
+//	cmn_err(CE_NOTE, "pushed %d descriptors, head: %d",i, head->qe_index);
 
 //	cmn_err(CE_NOTE, "vq->vq_avail_idx = %d, vq->vq_avail->idx = %d",
 //			vq->vq_avail_idx, vq->vq_avail->idx);
@@ -802,15 +802,15 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	int usedidx;
 	int i = 0;
 
-	TRACE;
+//	TRACE;
 
 	/* Sync idx (and flags) */
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
 		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
 
 
-	cmn_err(CE_NOTE, "vq->vq_used_idx = %d, vq->vq_used->idx = %d",
-			vq->vq_used_idx, vq->vq_used->idx);
+//	cmn_err(CE_NOTE, "vq->vq_used_idx = %d, vq->vq_used->idx = %d",
+//			vq->vq_used_idx, vq->vq_used->idx);
 
 	if (vq->vq_used_idx == vq->vq_used->idx)
 		return NULL;
@@ -831,7 +831,7 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	slot = vq->vq_used->ring[usedidx].id;
 	*len = vq->vq_used->ring[usedidx].len;
 
-	cmn_err(CE_NOTE, "Pulled descriptor head %d (length %ld) from slot %d, vq %d", slot, *len, usedidx, vq->vq_index);
+//	cmn_err(CE_NOTE, "Pulled descriptor head %d (length %ld) from slot %d, vq %d", slot, *len, usedidx, vq->vq_index);
 
 	/* And the descriptor */
 	ddi_dma_sync(vq->vq_dma_handle,
@@ -852,7 +852,7 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 
 		tmp = tmp->qe_next;
 
-		cmn_err(CE_NOTE, "Pulled tail descriptor %d", tmp->qe_index);
+//		cmn_err(CE_NOTE, "Pulled tail descriptor %d", tmp->qe_index);
 		i++;
 #if 0
 		mutex_enter(&vq->vq_uring_lock);
@@ -868,7 +868,7 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 			sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORCPU);
 
 		slot = vq->vq_used->ring[usedidx].id;
-#endif		
+#endif
 		/* And the descriptor */
 /*
 		ddi_dma_sync(vq->vq_dma_handle,
@@ -880,10 +880,10 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 //		tmp = &vq->vq_entries[slot];
 	}
 
-	cmn_err(CE_NOTE, "Pulled %d descriptors", i);
+//	cmn_err(CE_NOTE, "Pulled %d descriptors", i);
 
 	ASSERT(tmp->qe_next == NULL);
-	TRACE;
+//	TRACE;
 
 	return head;
 }
@@ -894,7 +894,7 @@ void virtio_free_chain(struct virtqueue *vq, struct vq_entry *ve)
 
 	ASSERT(ve);
 
-	TRACE;
+//	TRACE;
 	while (ve->qe_next) {
 //		FAST_TRACE;
 		tmp = ve->qe_next;
