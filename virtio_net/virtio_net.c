@@ -860,7 +860,7 @@ static int vioif_process_rx(struct vioif_softc *sc)
 
 		mp->b_wptr = mp->b_rptr + len;
 
-		virtio_free_chain(vq, ve);
+		virtio_free_chain(vq, ve_hdr);
 
 		mac_rx(sc->sc_mac_handle, NULL, mp);
 		
