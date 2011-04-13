@@ -40,4 +40,26 @@ void dev_panic(dev_info_t *dip, char *fmt, ...)
 		ddi_get_instance(dip), buf);
 }
 
+void hex_dump(char *prefix, void *addr, int len)
+{
+	unsigned char *base = addr;
+	char buff[256], *bptr;
+	int i = 0;
+	bptr = buff;
 
+	cmn_err(CE_NOTE, "Dumping %d bytes starting from 0x%p", len, base);
+
+	while (i < len) {
+		sprintf(bptr, "%02hhx ", base[i]);
+		bptr += 3;
+		i++;
+
+		if (!(i % 16)) {
+			cmn_err(CE_NOTE, "%s: 0x%p: %s", prefix, base + i - 16, buff);
+			bptr = buff;
+		}
+	}
+
+	if (i % 16)
+		cmn_err(CE_NOTE, "%s: 0x%p: %s", prefix, base + i - (i % 16), buff);
+}
