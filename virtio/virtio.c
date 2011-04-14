@@ -149,29 +149,30 @@ virtio_reinit_end(struct virtio_softc *sc)
 uint32_t
 virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 {
+	uint32_t host_features;
 	uint32_t features;
 
-	features = ddi_get32(sc->sc_ioh,
+	host_features = ddi_get32(sc->sc_ioh,
 		(uint32_t *)(sc->sc_io_addr + VIRTIO_CONFIG_DEVICE_FEATURES));
 
 	dev_err(sc->sc_dev, CE_NOTE, "host features: %x, guest features: %x",
-			features, guest_features);
+			host_features, guest_features);
 
-	features &= guest_features;
+	features = host_features & guest_features;
 	ddi_put32(sc->sc_ioh,
 		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_DEVICE_FEATURES),
 		features);
 
 	sc->sc_features = features;
 
-	return (features);
+	return (host_features);
 }
 
 void
-virtio_show_features(struct virtio_softc *sc)
+virtio_show_features(struct virtio_softc *sc, uint32_t features)
 {
 	dev_err(sc->sc_dev, CE_NOTE, "Genetic Virtio features:");
-	if (sc->sc_features & VIRTIO_F_RING_INDIRECT_DESC)
+	if (features & VIRTIO_F_RING_INDIRECT_DESC)
 		dev_err(sc->sc_dev, CE_NOTE, "INDIRECT_DESC");
 }
 
@@ -790,7 +791,7 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 
 	virtio_notify(vq);
 
-	TRACE;
+//	TRACE;
 }
 
 /* Get a chain of descriptors from the used ring, if one is available. */

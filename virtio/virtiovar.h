@@ -239,7 +239,7 @@ int virtio_vq_intr(struct virtio_softc *);
 void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);
 
-void virtio_show_features(struct virtio_softc *sc);
+void virtio_show_features(struct virtio_softc *sc, uint32_t features);
 void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
 
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,

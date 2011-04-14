@@ -1202,47 +1202,47 @@ virtio_net_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 }
 
 static void
-virtio_net_show_features(struct vioif_softc *sc)
+virtio_net_show_features(struct vioif_softc *sc, uint32_t features)
 {
-	virtio_show_features(&sc->sc_virtio);
+	virtio_show_features(&sc->sc_virtio, features);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Virtio Net features:");
 
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CSUM)
+	if (features & VIRTIO_NET_F_CSUM)
 		dev_err(sc->sc_dev, CE_NOTE, "CSUM");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_CSUM)
+	if (features & VIRTIO_NET_F_GUEST_CSUM)
 		dev_err(sc->sc_dev, CE_NOTE, "GUEST_CSUM");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MAC)
+	if (features & VIRTIO_NET_F_MAC)
 		dev_err(sc->sc_dev, CE_NOTE, "MAC");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GSO)
+	if (features & VIRTIO_NET_F_GSO)
 		dev_err(sc->sc_dev, CE_NOTE, "GSO");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_TSO4)
+	if (features & VIRTIO_NET_F_GUEST_TSO4)
 		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO4");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_TSO6)
+	if (features & VIRTIO_NET_F_GUEST_TSO6)
 		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO6");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_ECN)
+	if (features & VIRTIO_NET_F_GUEST_ECN)
 		dev_err(sc->sc_dev, CE_NOTE, "GUEST_ECN");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_GUEST_UFO)
+	if (features & VIRTIO_NET_F_GUEST_UFO)
 		dev_err(sc->sc_dev, CE_NOTE, "GUEST_UFO");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_TSO4)
+	if (features & VIRTIO_NET_F_HOST_TSO4)
 		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO4");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_TSO6)
+	if (features & VIRTIO_NET_F_HOST_TSO6)
 		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO6");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_ECN)
+	if (features & VIRTIO_NET_F_HOST_ECN)
 		dev_err(sc->sc_dev, CE_NOTE, "HOST_ECN");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_HOST_UFO)
+	if (features & VIRTIO_NET_F_HOST_UFO)
 		dev_err(sc->sc_dev, CE_NOTE, "HOST_UFO");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MRG_RXBUF)
+	if (features & VIRTIO_NET_F_MRG_RXBUF)
 		dev_err(sc->sc_dev, CE_NOTE, "MRG_RXBUF");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS)
+	if (features & VIRTIO_NET_F_STATUS)
 		dev_err(sc->sc_dev, CE_NOTE, "STATUS");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_VQ)
+	if (features & VIRTIO_NET_F_CTRL_VQ)
 		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VQ");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_RX)
+	if (features & VIRTIO_NET_F_CTRL_RX)
 		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_VLAN)
+	if (features & VIRTIO_NET_F_CTRL_VLAN)
 		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VLAN");
-	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_CTRL_RX_EXTRA)
+	if (features & VIRTIO_NET_F_CTRL_RX_EXTRA)
 		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX_EXTRA");
 }
 
@@ -1253,7 +1253,11 @@ virtio_net_show_features(struct vioif_softc *sc)
 static int
 virtio_net_dev_features(struct vioif_softc *sc)
 {
-	virtio_negotiate_features(&sc->sc_virtio,
+	uint32_t host_features;
+
+
+	host_features = virtio_negotiate_features(&sc->sc_virtio,
+			VIRTIO_NET_F_CSUM |
 			VIRTIO_NET_F_MAC |
 			VIRTIO_NET_F_STATUS |
 //			VIRTIO_NET_F_CTRL_VQ |
@@ -1268,8 +1272,11 @@ virtio_net_dev_features(struct vioif_softc *sc)
 		return (DDI_FAILURE);
 	}
 #endif
+	dev_err(sc->sc_dev, CE_NOTE, "Host features:");
+	virtio_net_show_features(sc, host_features);
 
-	virtio_net_show_features(sc);
+	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
+	virtio_net_show_features(sc, sc->sc_virtio.sc_features);
 
 	return (DDI_SUCCESS);
 }
