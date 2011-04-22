@@ -348,6 +348,7 @@ virtio_vq_intr(struct virtio_softc *sc)
 
 	return r;
 }
+#endif
 
 /*
  * Start/stop vq interrupt.  No guarantee.
@@ -356,16 +357,15 @@ void
 virtio_stop_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
-	vq->vq_queued++;
+//	vq->vq_queued++;
 }
 
 void
 virtio_start_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
-	vq->vq_queued++;
+//	vq->vq_queued++;
 }
-#endif
 
 static ddi_dma_attr_t virtio_vq_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
@@ -661,7 +661,7 @@ vq_alloc_entry(struct virtqueue *vq)
 		return NULL;
 	}
 	qe = list_remove_head(&vq->vq_freelist);
-	ASSERT(qe);
+//	ASSERT(qe);
 
 	mutex_exit(&vq->vq_freelist_lock);
 
@@ -763,7 +763,7 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 	} while (qe);
 */
 //	cmn_err(CE_NOTE, "pushed %d descriptors, head: %d",i, head->qe_index);
-
+//
 //	cmn_err(CE_NOTE, "vq->vq_avail_idx = %d, vq->vq_avail->idx = %d",
 //			vq->vq_avail_idx, vq->vq_avail->idx);
 
@@ -773,11 +773,11 @@ void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
 	/* XXX worth the trouble? Maybe just sync the whole mapping? */
 	(void) ddi_dma_sync(vq->vq_dma_handle,
 		vq->vq_availoffset + sizeof(struct vring_avail) +
-			((sizeof(uint16_t) * vq->vq_avail->idx ) & 0xfffffff0),
+			((sizeof(uint16_t) * vq->vq_avail->idx )),
 		/*sizeof(uint16_t) * (vq->vq_avail_idx - vq->vq_avail->idx)*/ 32,
 		DDI_DMA_SYNC_FORDEV);
-
 //	TRACE;
+
 	/* Yes, we need to make sure the device sees the idx update after
 	 * it sees the ring update. */
 	vq->vq_avail->idx = vq->vq_avail_idx;

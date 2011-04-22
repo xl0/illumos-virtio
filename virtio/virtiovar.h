@@ -165,7 +165,7 @@ struct virtio_softc {
 	int			sc_config_offset;
 
 	uint32_t		sc_features;
-	bool			sc_indirect;
+//	bool			sc_indirect;
 
 	int			sc_nvqs; /* set by the user */ 
 	struct virtqueue	*sc_vqs; /* set by the user */
