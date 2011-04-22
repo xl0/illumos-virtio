@@ -160,7 +160,7 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 
 	features = host_features & guest_features;
 	ddi_put32(sc->sc_ioh,
-		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_DEVICE_FEATURES),
+		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_GUEST_FEATURES),
 		features);
 
 	sc->sc_features = features;
