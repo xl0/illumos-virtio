@@ -913,7 +913,6 @@ vioif_intr(caddr_t arg)
 	if (!isr_status)
 		return DDI_INTR_UNCLAIMED;
 
-	
 	vioif_reclaim_used_tx(sc);
 	i = vioif_process_rx(sc);
 //	if (i) {
@@ -1465,6 +1464,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_alloc1;
 	}
 
+
 	sc->sc_nvqs = 1;
 //	sc->sc_virtio_vq[0].vq_done = vioif_rx_vq_done;
 	ret = virtio_alloc_vq(&sc->sc_virtio, &sc->sc_vq[1], 1, VIOIF_TX_QLEN, "tx");
@@ -1472,6 +1472,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_alloc2;
 	}
 
+	virtio_stop_vq_intr(&sc->sc_vq[1]);
 	sc->sc_nvqs = 2;
 //	sc->sc_virtio_vq[1].vq_done = vioif_tx_vq_done;
 //	virtio_start_vq_intr(&sc->sc_vq[0]);
