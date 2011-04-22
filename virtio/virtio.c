@@ -702,7 +702,7 @@ static void virtio_notify(struct virtqueue *vq)
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
 		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
 
-//	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
+	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
 		ddi_put16(vsc->sc_ioh,
 			(uint16_t *) (vsc->sc_io_addr +
 				VIRTIO_CONFIG_QUEUE_NOTIFY),
