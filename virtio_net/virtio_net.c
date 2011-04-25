@@ -130,10 +130,13 @@ struct virtio_net_hdr {
 	uint16_t	gso_size;
 	uint16_t	csum_start;
 	uint16_t	csum_offset;
-#if 0
-	uint16_t	num_buffers; /* if VIRTIO_NET_F_MRG_RXBUF enabled */
-#endif
-} __packed;
+};
+
+/* Use this header layout if VIRTIO_NET_F_MRG_RXBUF is negotiated. */
+struct virtio_net_hdr_mrg {
+	struct virtio_net_hdr net_hdr;
+	uint16_t num_buffers;
+};
 
 #define VIRTIO_NET_HDR_F_NEEDS_CSUM	1 /* flags */
 #define VIRTIO_NET_HDR_GSO_NONE		0 /* gso_type */
@@ -254,7 +257,8 @@ struct vioif_softc {
 	int			sc_nvqs; /* set by the user */ 
 	struct virtqueue	sc_vq[3];
 
-	int			sc_stopped;
+	int			sc_stopped:1;
+	int			sc_merge:1;
 
 	uint8_t			sc_mac[ETHERADDRL];
 //	struct ethercom		sc_ethercom;
@@ -276,6 +280,7 @@ struct vioif_softc {
 	/* Tx bufs - virtio_net_hdr + the packet. */
 	struct vioif_buf	*sc_rxbufs;
 	int			sc_numrxbufs;
+	int			sc_rxbuf_size;
 
 	/* Tx bufs - virtio_net_hdr + a copy of the packet. */
 	struct vioif_buf	*sc_txbufs;
@@ -471,7 +476,7 @@ static int virtio_net_alloc_buffers(struct vioif_softc *sc)
 			goto exit;
 		}
 
-		if (ddi_dma_mem_alloc(buf->b_dmah, VIOIF_RX_SIZE,
+		if (ddi_dma_mem_alloc(buf->b_dmah, sc->sc_rxbuf_size,
 			&virtio_net_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 			NULL, &buf->b_buf, &len, &buf->b_acch)) {
 
@@ -736,77 +741,97 @@ virtio_net_unicst(void *arg, const uint8_t *macaddr)
 }
 
 
-static int vioif_populate_rx(struct vioif_softc *sc)
+static int vioif_add_rx_single(struct vioif_softc *sc)
 {
 	struct virtqueue *vq = &sc->sc_vq[0]; /* rx vq */
-
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
 
 	struct vioif_buf *buf;
 	struct vioif_buf *buf_hdr;
-	struct vring_desc *vd;
-	struct vring_desc *vd_hdr;
 
-	struct virtio_net_hdr *hdr;
+	ve_hdr = vq_alloc_entry(vq);
+	if (!ve_hdr) {
+		/* Out of free descriptors - ring already full. */
+		return -1;
+	}
+	ve = vq_alloc_entry(vq);
+	if (!ve) {
+		vq_free_entry(vq, ve_hdr);
+		/* Out of free descriptors - ring already full. */
+		return -1;
+	}
 
-	int i = 0;
+	buf_hdr = &sc->sc_rxbufs[ve_hdr->qe_index];
+	buf = &sc->sc_rxbufs[ve->qe_index];
 
-	for (;;) {
-		ve_hdr = vq_alloc_entry(vq);
-		if (!ve_hdr) {
-//			TRACE;
-			/* Out of free descriptors - ring already full. */
-			return i;
-		}
-		ve = vq_alloc_entry(vq);
-		if (!ve) {
-//			TRACE;
-			vq_free_entry(vq, ve_hdr);
-			/* Out of free descriptors - ring already full. */
-			return i;
-		}
+	virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
+		sizeof(struct virtio_net_hdr), B_FALSE);
 
-		buf_hdr = &sc->sc_rxbufs[ve_hdr->qe_index];
-		buf = &sc->sc_rxbufs[ve->qe_index];
-//		cmn_err(CE_NOTE, "rx push hdr idx: %d, buf idx: %d",
-//			ve_hdr->qe_index, ve->qe_index);
-
-//		memset(buf_hdr->b_buf, 0, sizeof(struct virtio_net_hdr));
-//		ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
-//			DDI_DMA_SYNC_FORDEV);
-
-//		memset(buf_hdr->b_buf, 0xa5, sizeof(struct virtio_net_hdr));
-//		memset(buf->b_buf, 0xb6, VIOIF_RX_SIZE);
-
-		virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
-			sizeof(struct virtio_net_hdr), B_FALSE);
-
-//		mcopymsg(mb, buf->b_buf);
-//		ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
-		virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
-			VIOIF_RX_SIZE, B_FALSE);
+	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
+		sc->sc_rxbuf_size, B_FALSE);
 
 
 	//	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
 	//		DDI_DMA_SYNC_FORDEV);
 
-		ve_hdr->qe_next = ve;
+	ve_hdr->qe_next = ve;
 //		cmn_err(CE_NOTE, "push buf[%d] b_buf = 0x%p b_paddr=0x%x",
 //			ve_hdr->qe_index, buf_hdr->b_buf, buf_hdr->b_paddr);
 //		cmn_err(CE_NOTE, "push buf[%d] b_buf = 0x%p b_paddr=0x%x",
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
 	//	TRACE;
-		vitio_push_chain(vq, ve_hdr);
-		i++;
-	}
+	vitio_push_chain(vq, ve_hdr);
 
-	/* Unreachable */
-	return -1;
+	return 0;
 }
 
-static int vioif_process_rx(struct vioif_softc *sc)
+static int vioif_add_rx_merge(struct vioif_softc *sc)
+{
+	struct virtqueue *vq = &sc->sc_vq[0]; /* rx vq */
+	struct vq_entry *ve;
+	struct vioif_buf *buf;
+
+	ve = vq_alloc_entry(vq);
+	if (!ve) {
+		/* Out of free descriptors - ring already full. */
+		return -1;
+	}
+
+	buf = &sc->sc_rxbufs[ve->qe_index];
+
+	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
+		sc->sc_rxbuf_size, B_FALSE);
+
+	vitio_push_chain(vq, ve);
+
+	return 0;
+}
+
+static int vioif_populate_rx(struct vioif_softc *sc)
+{
+	int i = 0;
+	int ret = 0;
+
+	for (;;) {
+		if (sc->sc_merge) {
+			ret = vioif_add_rx_merge(sc);
+		} else {
+			ret = vioif_add_rx_single(sc);
+		}
+
+		if (ret)
+			break;
+
+		i++;
+
+	}
+
+	return i;
+}
+
+static int vioif_rx_single(struct vioif_softc *sc)
 {
 	struct virtqueue *vq = &sc->sc_vq[0]; /* rx vq */
 
@@ -815,16 +840,12 @@ static int vioif_process_rx(struct vioif_softc *sc)
 
 	struct vioif_buf *buf;
 	struct vioif_buf *buf_hdr;
-	struct vring_desc *vd;
-	struct vring_desc *vd_hdr;
 
 	struct virtio_net_hdr *hdr;
 	mblk_t *mp;
-
 	size_t len;
 
 	int i = 0;
-//	TRACE;
 
 	while ((ve_hdr = virtio_pull_chain(vq, &len))) {
 //		TRACE;
@@ -849,7 +870,7 @@ static int vioif_process_rx(struct vioif_softc *sc)
 //		cmn_err(CE_NOTE, "pull pkt buf[%d] b_buf = 0x%p b_paddr=0x%x",
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
-		ddi_dma_sync(buf->b_dmah, 0, 1514, DDI_DMA_SYNC_FORCPU);
+		ddi_dma_sync(buf->b_dmah, 0, sc->sc_rxbuf_size, DDI_DMA_SYNC_FORCPU);
 		ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
 				DDI_DMA_SYNC_FORCPU);
 
@@ -871,6 +892,84 @@ static int vioif_process_rx(struct vioif_softc *sc)
 	}
 
 	return i;
+}
+
+static int vioif_rx_merged(struct vioif_softc *sc)
+{
+	struct virtqueue *vq = &sc->sc_vq[0]; /* rx vq */
+
+	struct vq_entry *ve;
+
+	struct vioif_buf *buf;
+
+	struct virtio_net_hdr *hdr;
+	mblk_t *mp;
+	size_t len;
+
+	int i = 0;
+
+	while ((ve = virtio_pull_chain(vq, &len))) {
+//		TRACE;
+
+		if (ve->qe_next) {
+			cmn_err(CE_NOTE, "Merged buffer len %ld", len);
+			virtio_free_chain(vq, ve);
+		}
+
+//		buf_hdr = &sc->sc_rxbufs[ve_hdr->qe_index];
+		buf = &sc->sc_rxbufs[ve->qe_index];
+		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
+
+
+//		cmn_err(CE_NOTE, "len = %ld", len);
+
+		len -= sizeof(struct virtio_net_hdr_mrg);
+
+		mp = allocb(len, 0);
+		if (!mp) {
+			cmn_err(CE_WARN, "Failed to allocale mblock!");
+			virtio_free_chain(vq, ve);
+			break;
+		}
+
+//		cmn_err(CE_NOTE, "pull hdr buf[%d] b_buf = 0x%p b_paddr=0x%x",
+//			ve_hdr->qe_index, buf_hdr->b_buf, buf_hdr->b_paddr);
+//		cmn_err(CE_NOTE, "pull pkt buf[%d] b_buf = 0x%p b_paddr=0x%x",
+//			ve->qe_index, buf->b_buf, buf->b_paddr);
+
+//		ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
+//				DDI_DMA_SYNC_FORCPU);
+
+//		hex_dump("hdr", buf_hdr->b_buf, sizeof(struct virtio_net_hdr));
+//		hex_dump("rx", buf->b_buf, len);
+
+		bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr_mrg),
+				mp->b_rptr, len);
+//		cmn_err(CE_NOTE, "mbuf: rptr: %p, wptr: %p",
+//				mp->b_rptr, mp->b_wptr);
+
+		mp->b_wptr = mp->b_rptr + len;
+
+		virtio_free_chain(vq, ve);
+
+		mac_rx(sc->sc_mac_handle, NULL, mp);
+		
+//		cmn_err(CE_NOTE, "Pushed mblock (len = %ld) to mac", len);
+		i++;
+	}
+
+	return i;
+}
+
+
+
+static int vioif_process_rx(struct vioif_softc *sc)
+{
+	if (sc->sc_merge) {
+		return vioif_rx_merged(sc);	
+	}
+
+	return vioif_rx_single(sc);
 }
 
 static void vioif_reclaim_used_tx(struct vioif_softc *sc)
@@ -928,38 +1027,22 @@ vioif_intr(caddr_t arg)
 static bool
 virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 {
-//	struct vioif_softc *sc = ifp->if_softc;
-	struct virtio_softc *vsc = &sc->sc_virtio;
 	struct virtqueue *vq = &sc->sc_vq[1]; /* tx vq */
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
-	struct vring_desc *vd;
-	struct vring_desc *vd_hdr;
-	mblk_t *m;
 
-	int i;
 
 	struct vioif_buf *buf;
 	struct vioif_buf *buf_hdr;
 	struct virtio_net_hdr *hdr;
 	int nsegments = 0;
 	size_t msg_size = 0;
+	int hdr_len;
 
 	static int once = 0;
 
-//	int queued = 0, retry = 0;
-//	struct vq_entry *hdr_ve;
-//	struct virtio_net_hdr *hdr;
-
-//	TRACE;
-
-//	cmn_err(CE_NOTE, "once = %d", once);
-
-//	if (once++ > 1) {
-//		TRACE;
-//		return (B_FALSE);
-//	}
-
+	hdr_len = sc->sc_merge ? sizeof(struct virtio_net_hdr_mrg) :
+		sizeof(struct virtio_net_hdr);
 
 	msg_size = msgsize(mb);
 	if (msg_size > ETHERVLANMTU) {
@@ -988,12 +1071,12 @@ virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 	buf = &sc->sc_txbufs[ve->qe_index];
 //	cmn_err(CE_NOTE, "hdr idx: %d, buf idx: %d", ve_hdr->qe_index, ve->qe_index);
 
-	memset(buf_hdr->b_buf, 0, sizeof(struct virtio_net_hdr));
-	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
+	memset(buf_hdr->b_buf, 0, hdr_len);
+	ddi_dma_sync(buf_hdr->b_dmah, 0, hdr_len,
 		DDI_DMA_SYNC_FORDEV);
 
 	virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
-		sizeof(struct virtio_net_hdr), B_TRUE);
+		hdr_len, B_TRUE);
 
 	mcopymsg(mb, buf->b_buf);
 	ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
@@ -1007,44 +1090,7 @@ virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 
 //	TRACE;
 	vitio_push_chain(vq, ve_hdr);
-//	TRACE;
 
-#if 0
-	mutex_enter(&vq->vq_aring_lock);
-
-	cmn_err(CE_NOTE, "vq->vq_avail_idx = %d\n", vq->vq_avail_idx);
-
-	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = ve_hdr->qe_index;
-	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = ve->qe_index;
-
-	ddi_dma_sync(vq->vq_dma_handle,
-		vq->vq_availoffset,
-		sizeof(struct vring_avail) + sizeof(uint16_t) * vq->vq_num,
-		DDI_DMA_SYNC_FORDEV);
-
-	vq->vq_avail->idx = vq->vq_avail_idx;
-	vq->vq_avail->flags = /*VRING_AVAIL_F_NO_INTERRUPT*/ 0;
-/*
-	ddi_dma_sync(vq->vq_dma_handle,
-		vq->vq_availoffset,
-		sizeof(struct vring_avail) + sizeof(uint16_t) * vq->vq_num,
-		DDI_DMA_SYNC_FORDEV);
-
-
-	ddi_dma_sync(vq->vq_dma_handle, sizeof(struct vring_desc) * ve->qe_index,
-			sizeof(struct vring_desc), DDI_DMA_SYNC_FORDEV);
-*/
-	ddi_dma_sync(vq->vq_dma_handle, 0,
-			0x4000, DDI_DMA_SYNC_FORDEV);
-	cmn_err(CE_NOTE, "idx = %d", vq->vq_avail->idx);
-	cmn_err(CE_NOTE, "vq->vq_used->flags = %x", vq->vq_used->flags);
-
-	mutex_exit(&vq->vq_aring_lock);
-
-	ddi_put16(vsc->sc_ioh,
-		(uint16_t *) (vsc->sc_io_addr + VIRTIO_CONFIG_QUEUE_NOTIFY),
-		vq->vq_index);
-#endif
 	return (B_TRUE);
 }
 
@@ -1069,6 +1115,8 @@ virtio_net_tx(void *arg, mblk_t *mp)
 		}
 		mp = nmp;
 	}
+
+
 	mutex_exit(&sc->sc_tx_lock);
 
 	return (mp);
@@ -1261,6 +1309,7 @@ virtio_net_dev_features(struct vioif_softc *sc)
 			VIRTIO_NET_F_STATUS |
 //			VIRTIO_NET_F_CTRL_VQ |
 //			VIRTIO_NET_F_CTRL_RX |
+			VIRTIO_NET_F_MRG_RXBUF | 
 			VIRTIO_F_NOTIFY_ON_EMPTY /*|
 			VRING_DESC_F_INDIRECT*/);
 
@@ -1276,6 +1325,15 @@ virtio_net_dev_features(struct vioif_softc *sc)
 
 	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
 	virtio_net_show_features(sc, sc->sc_virtio.sc_features);
+
+
+	sc->sc_rxbuf_size = VIOIF_RX_SIZE;
+	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MRG_RXBUF) {
+		cmn_err(CE_NOTE, "Using rx buffer merge");
+		sc->sc_merge = 1;
+		sc->sc_rxbuf_size = VIRTIO_PAGE_SIZE;
+	}
+
 
 	return (DDI_SUCCESS);
 }
