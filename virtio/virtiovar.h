@@ -90,8 +90,6 @@ struct vq_entry {
 	struct vq_entry		*qe_next;
 	ddi_dma_handle_t	qe_dmah;
 	struct vring_desc	*qe_desc;
-	/* Set to the user-specific data container, like mbuf */
-	void			*qe_priv; 
 };
 
 struct virtqueue {
@@ -183,10 +181,9 @@ void virtio_write_device_config_2(struct virtio_softc *, int, uint16_t);
 void virtio_write_device_config_4(struct virtio_softc *, int, uint32_t);
 void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
 
-int virtio_alloc_vq(struct virtio_softc *sc,
-		struct virtqueue *vq, int index,
-		int size, const char *name);
-int virtio_free_vq(struct virtio_softc*, struct virtqueue*);
+struct virtqueue * virtio_alloc_vq(struct virtio_softc *sc,
+		int index, int size, const char *name);
+void virtio_free_vq(struct virtqueue*);
 void virtio_reset(struct virtio_softc *);
 void virtio_reinit_start(struct virtio_softc *);
 void virtio_reinit_end(struct virtio_softc *);
@@ -214,7 +211,7 @@ void virtio_show_features(struct virtio_softc *sc, uint32_t features);
 //void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
 
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
-	uint32_t paddr, uint16_t len, void *priv, bool write);
+	uint32_t paddr, uint16_t len, bool write);
 void vitio_push_chain(struct vq_entry *qe);
 struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct vq_entry *ve);

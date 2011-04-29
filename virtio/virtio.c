@@ -56,7 +56,8 @@
  * Declarations
  */
 
-void virtio_set_status(struct virtio_softc *sc, int status)
+void
+virtio_set_status(struct virtio_softc *sc, int status)
 {
 	int old = 0;
 
@@ -254,9 +255,9 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 /*
  * Allocate/free a vq.
  */
-int
+struct virtqueue *
 virtio_alloc_vq(struct virtio_softc *sc,
-		struct virtqueue *vq, int index,
+		int index,
 		int size,
 		const char *name)
 {
@@ -264,11 +265,10 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	int r;
 	unsigned int ncookies;
 	size_t len;
+	struct virtqueue *vq;
 #define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))&	\
 				 ~(VIRTIO_PAGE_SIZE-1))
 	TRACE;
-
-	memset(vq, 0, sizeof(*vq));
 
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SELECT), index);
@@ -280,6 +280,10 @@ virtio_alloc_vq(struct virtio_softc *sc,
 			 index, name);
 		goto out;
 	}
+
+	vq = kmem_zalloc(sizeof(struct virtqueue), KM_SLEEP);
+	if (!vq)
+		goto out;
 
 	/* size 0 => use native vq size, good for receive queues. */
 	if (size)
@@ -300,7 +304,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	if (r) {
 		dev_err(sc->sc_dev, CE_WARN,
 			"Failed to allocate dma handle for vq %d", index);
-		goto out;
+		goto out_alloc_handle;
 	}
 
 	r = ddi_dma_mem_alloc(vq->vq_dma_handle, allocsize, &virtio_vq_devattr,
@@ -357,7 +361,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	dev_err(sc->sc_dev, CE_NOTE,
 		   "allocated %u byte for virtqueue %d for %s, "
 		   "size %d\n", allocsize, index, name, vq_size);
-	return 0;
+	return vq;
 
 out_init:
 	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
@@ -367,32 +371,21 @@ out_bind:
 	ddi_dma_mem_free(&vq->vq_dma_acch);
 out_alloc:
 	ddi_dma_free_handle(&vq->vq_dma_handle);
+out_alloc_handle:
+	kmem_free(vq, sizeof(struct virtqueue));
 out:
-	return (DDI_FAILURE);
+	return (NULL);
 }
 
 
-int
-virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
+void
+virtio_free_vq(struct virtqueue *vq)
 {
-	struct vq_entry *qe;
-	int i = 0;
+	struct virtio_softc *sc = vq->vq_owner;
 
 	TRACE;
 
 	/* device must be already deactivated */
-	/* confirm the vq is empty */
-
-	for (qe = list_head(&vq->vq_freelist); qe != NULL;
-		qe = list_next(&vq->vq_freelist, qe)) {
-		i++;
-	}
-	if (i != vq->vq_num) {
-		dev_err(sc->sc_dev, CE_WARN, "freeing non-empty vq, index %d\n",
-		       vq->vq_index);
-		return (DDI_FAILURE);
-	}
-
 	/* tell device that there's no virtqueue any longer */
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SELECT),
@@ -410,7 +403,7 @@ virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
 	mutex_destroy(&vq->vq_uring_lock);
 	mutex_destroy(&vq->vq_aring_lock);
 
-	return 0;
+	kmem_free(vq, sizeof(struct virtqueue));
 }
 
 /*
@@ -431,7 +424,6 @@ vq_alloc_entry(struct virtqueue *vq)
 	mutex_exit(&vq->vq_freelist_lock);
 
 	qe->qe_next = NULL;
-	qe->qe_priv = NULL;
 	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
 	return qe;
@@ -445,14 +437,14 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 	mutex_exit(&vq->vq_freelist_lock);
 }
 
-void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
-	uint32_t paddr, uint16_t len, void *priv, bool write)
+void
+virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
+	uint32_t paddr, uint16_t len, bool write)
 {
 	qe->qe_desc->addr = paddr;
 	qe->qe_desc->len = len;
 	qe->qe_desc->flags = 0;
 	qe->qe_dmah = dmah;
-	qe->qe_priv = priv;
 
 	/* 'write' - from the driver's point of view*/
 	if (!write) {
@@ -460,7 +452,8 @@ void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 	}
 }
 
-static void virtio_notify(struct virtqueue *vq)
+static void
+virtio_notify(struct virtqueue *vq)
 {
 	struct virtio_softc *vsc = vq->vq_owner;
 
@@ -476,12 +469,14 @@ static void virtio_notify(struct virtqueue *vq)
 
 }
 
-void virtio_queue_show(struct virtqueue *vq)
+void
+virtio_queue_show(struct virtqueue *vq)
 {
 
 }
 
-void vitio_push_chain(struct vq_entry *qe)
+void
+vitio_push_chain(struct vq_entry *qe)
 {
 	struct virtqueue *vq = qe->qe_queue;
 	struct vq_entry *head = qe;
@@ -529,7 +524,8 @@ void vitio_push_chain(struct vq_entry *qe)
 }
 
 /* Get a chain of descriptors from the used ring, if one is available. */
-struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
+struct vq_entry *
+virtio_pull_chain(struct virtqueue *vq, size_t *len)
 {
 	struct vq_entry *head;
 	struct vq_entry *tmp;
@@ -587,9 +583,9 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	return head;
 }
 
-void virtio_free_chain(struct vq_entry *ve)
+void
+virtio_free_chain(struct vq_entry *ve)
 {
-	struct virtqueue *vq = ve->qe_queue;
 	struct vq_entry *tmp;
 
 	ASSERT(ve);
@@ -603,17 +599,29 @@ void virtio_free_chain(struct vq_entry *ve)
 	vq_free_entry(ve->qe_queue, ve);
 }
 
-void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second)
+void
+virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second)
 {
 	first->qe_next = second;
 }
 
-/*
- * DDI dev_ops entrypoints
- */
-static int virtio_attach(dev_info_t *devi, ddi_attach_cmd_t cmd);
-static int virtio_detach(dev_info_t *devi, ddi_detach_cmd_t cmd);
+static int
+virtio_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
+{
+	TRACE;
+	if (cmd != DDI_ATTACH && cmd != DDI_RESUME) {
+		return (DDI_FAILURE);
+	}
 
+	return (DDI_SUCCESS);
+}
+
+static int
+virtio_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
+{
+	TRACE;
+	return (DDI_SUCCESS);
+}
 /*
  * Module operations
  */
@@ -648,27 +656,6 @@ static struct modlinkage modlinkage = {
 		NULL
 	}
 };
-
-
-/*ARGSUSED*/
-static int
-virtio_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
-{
-	TRACE;
-	if (cmd != DDI_ATTACH && cmd != DDI_RESUME) {
-		return (DDI_FAILURE);
-	}
-
-	return (DDI_SUCCESS);
-}
-
-/*ARGSUSED*/
-static int
-virtio_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
-{
-	TRACE;
-	return (DDI_SUCCESS);
-}
 
 int
 _init(void)
