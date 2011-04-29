@@ -84,24 +84,14 @@ typedef boolean_t bool;
 struct vq_entry {
 	list_node_t		qe_list;
 	struct virtqueue	*qe_queue;
-//	uint16_t		qe_flags;
 	uint16_t		qe_index; /* index in vq_desc array */
 	uint16_t		qe_used_len; /* Set when the descriptor gets back from device*/
 	/* followings are used only when it is the `head' entry */
 	struct vq_entry		*qe_next;
-//	int16_t			qe_next;     /* next enq slot */
-//	bool			qe_indirect; /* 1 if using indirect */
 	ddi_dma_handle_t	qe_dmah;
 	struct vring_desc	*qe_desc;
 	/* Set to the user-specific data container, like mbuf */
 	void			*qe_priv; 
-
-#if 0
-
-	ddi_dma_cookie_t	qe_dma_cookie;
-	ddi_dma_handle_t	qe_dma_handle;
-	ddi_acc_handle_t	qe_dma_acch;
-#endif
 };
 
 struct virtqueue {
@@ -123,8 +113,6 @@ struct virtqueue {
 	ddi_dma_cookie_t	vq_dma_cookie;
 	ddi_dma_handle_t	vq_dma_handle;
 	ddi_acc_handle_t	vq_dma_acch;
-//	unsigned int		vq_bytesize;
-//	bus_dmamap_t		vq_dmamap;
 
 	int			vq_maxsegsize;
 	int			vq_maxnsegs;
@@ -132,7 +120,6 @@ struct virtqueue {
 	/* free entry management */
 	struct vq_entry		*vq_entries;
 	list_t		vq_freelist;
-//	SIMPLEQ_HEAD(, vq_entry) vq_freelist;
 	kmutex_t		vq_freelist_lock;
 
 	/* enqueue/dequeue status */
@@ -142,41 +129,21 @@ struct virtqueue {
 	kmutex_t		vq_aring_lock;
 	kmutex_t		vq_uring_lock;
 
-	/* interrupt handler */
-	int			(*vq_done)(struct virtqueue*);
 };
 
 struct virtio_softc {
 	dev_info_t		*sc_dev;
 
-//	pci_chipset_tag_t	sc_pc;
-//	pcitag_t		sc_tag;
-//	bus_dma_tag_t		sc_dmat;
-
-//	bus_dma_tag_t       virtio_dmat;
-
-
-//	void			*sc_ipl; /* interrupt priority, set by the user */
-//	void			*sc_ih;
 	ddi_iblock_cookie_t     sc_icookie;
 
-//	bus_space_tag_t		sc_iot;
 	ddi_acc_handle_t	sc_ioh;
 	uint8_t			*sc_io_addr;
-//	bus_size_t		sc_iosize;
 	int			sc_config_offset;
 
 	uint32_t		sc_features;
-//	bool			sc_indirect;
 
 	int			sc_nvqs; /* set by the user */ 
 	struct virtqueue	*sc_vqs; /* set by the user */
-
-	int			sc_childdevid;
-//	device_t		sc_child; /* set by child */
-	int			(*sc_config_change)(struct virtio_softc*);
-					 /* set by child */
-	int			(*sc_intrhand)(struct virtio_softc*);
 };
 
 /* The standard layout for the ring is a continuous chunk of memory which
