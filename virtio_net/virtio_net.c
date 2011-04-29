@@ -291,58 +291,7 @@ struct vioif_softc {
 #define VIOIF_RX_QLEN 0
 #define VIOIF_TX_QLEN 0
 
-/*
- * _init
- *
- * Solaris standard _init function for a device driver
- */
-int
-_init(void)
-{
-	int ret = 0;
-	TRACE;
 
-	mac_init_ops(&virtio_net_ops, "virtio_net");
-	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
-		TRACE;
-		mac_fini_ops(&virtio_net_ops);
-		cmn_err(CE_WARN, "unable to install the driver");
-		return (ret);
-	}
-
-	return (0);
-}
-
-/*
- * _fini
- *
- * Solaris standard _fini function for device driver
- */
-int
-_fini(void)
-{
-	int ret;
-	TRACE;
-
-	ret = mod_remove(&modlinkage);
-	if (ret == DDI_SUCCESS) {
-		mac_fini_ops(&virtio_net_ops);
-	}
-
-	return (ret);
-}
-
-/*
- * _info
- *
- * Solaris standard _info function for device driver
- */
-int
-_info(struct modinfo *pModinfo)
-{
-	TRACE;
-	return (mod_info(&modlinkage, pModinfo));
-}
 
 static link_state_t
 virtio_net_link_state(struct vioif_softc *sc)
@@ -889,7 +838,6 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 	}
 	mutex_exit(&sc->sc_tx_lock);
 }
-
 
 /*
  * Interrupt service routine.
@@ -1491,30 +1439,6 @@ exit:
 }
 
 /*
- * quiesce(9E) entry point.
- *
- * This function is called when the system is single-threaded at high
- * PIL with preemption disabled. Therefore, this function must not be
- * blocked.
- *
- * This function returns DDI_SUCCESS on success, or DDI_FAILURE on failure.
- * DDI_FAILURE indicates an error condition and should almost never happen.
- */
-#if 0
-static int
-virtio_net_quiesce(dev_info_t *devinfo)
-{
-	struct vioif_softc *dp = ddi_get_driver_private(devinfo);
-	TRACE;
-
-	/* FIXME: not implemented */
-
-	return (DDI_FAILURE);
-}
-#endif
-
-
-/*
  * virtio_net_detach
  * @devinfo: pointer to dev_info_t structure
  * @cmd: attach command to process
@@ -1562,4 +1486,42 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	kmem_free(sc, sizeof (struct vioif_softc));
 
 	return (DDI_SUCCESS);
+}
+
+int
+_init(void)
+{
+	int ret = 0;
+	TRACE;
+
+	mac_init_ops(&virtio_net_ops, "virtio_net");
+	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
+		TRACE;
+		mac_fini_ops(&virtio_net_ops);
+		cmn_err(CE_WARN, "unable to install the driver");
+		return (ret);
+	}
+
+	return (0);
+}
+
+int
+_fini(void)
+{
+	int ret;
+	TRACE;
+
+	ret = mod_remove(&modlinkage);
+	if (ret == DDI_SUCCESS) {
+		mac_fini_ops(&virtio_net_ops);
+	}
+
+	return (ret);
+}
+
+int
+_info(struct modinfo *pModinfo)
+{
+	TRACE;
+	return (mod_info(&modlinkage, pModinfo));
 }
