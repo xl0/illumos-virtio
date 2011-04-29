@@ -85,7 +85,6 @@ void virtio_set_status(struct virtio_softc *sc, int status)
 		status | old);
 }
 
-#define virtio_device_reset(sc)	virtio_set_status((sc), 0)
 
 /*
  * Reset the device.
@@ -465,6 +464,7 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 		list_insert_tail(&vq->vq_freelist, &vq->vq_entries[i]);
 		vq->vq_entries[i].qe_index = i;
 		vq->vq_entries[i].qe_desc = &vq->vq_descs[i];
+		vq->vq_entries[i].qe_queue = vq;
 	}
 
 	mutex_init(&vq->vq_freelist_lock, "virtio",
@@ -666,6 +666,7 @@ vq_alloc_entry(struct virtqueue *vq)
 	mutex_exit(&vq->vq_freelist_lock);
 
 	qe->qe_next = NULL;
+	qe->qe_priv = NULL;
 //	qe->qe_flags = 0;
 	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
@@ -681,12 +682,13 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 }
 
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
-	uint32_t paddr, uint16_t len, bool write)
+	uint32_t paddr, uint16_t len, void *priv, bool write)
 {
 	qe->qe_desc->addr = paddr;
 	qe->qe_desc->len = len;
 	qe->qe_desc->flags = 0;
 	qe->qe_dmah = dmah;
+	qe->qe_priv = priv;
 
 	/* 'write' - from the driver's point of view*/
 	if (!write) {
@@ -715,8 +717,9 @@ void virtio_queue_show(struct virtqueue *vq)
 
 }
 
-void vitio_push_chain(struct virtqueue *vq, struct vq_entry *qe)
+void vitio_push_chain(struct vq_entry *qe)
 {
+	struct virtqueue *vq = qe->qe_queue;
 	struct vq_entry *head = qe;
 	int i = 0;
 
@@ -889,21 +892,20 @@ struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	return head;
 }
 
-void virtio_free_chain(struct virtqueue *vq, struct vq_entry *ve)
+void virtio_free_chain(struct vq_entry *ve)
 {
+	struct virtqueue *vq = ve->qe_queue;
 	struct vq_entry *tmp;
 
 	ASSERT(ve);
 
-//	TRACE;
 	while (ve->qe_next) {
-//		FAST_TRACE;
 		tmp = ve->qe_next;
-		vq_free_entry(vq, ve);
+		vq_free_entry(ve->qe_queue, ve);
 		ve = tmp;
 	}
 
-	vq_free_entry(vq, ve);
+	vq_free_entry(ve->qe_queue, ve);
 }
 
 /*
