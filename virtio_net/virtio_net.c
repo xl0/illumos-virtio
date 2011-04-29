@@ -623,7 +623,7 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
 	//	TRACE;
-	vitio_push_chain(ve_hdr);
+	virtio_push_chain(ve_hdr);
 
 	return (0);
 
@@ -659,7 +659,7 @@ static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
 	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
 		sc->sc_rxbuf_size, B_FALSE);
 
-	vitio_push_chain(ve);
+	virtio_push_chain(ve);
 
 	return 0;
 }
@@ -819,7 +819,7 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 
 //	TRACE;
 
-	mutex_enter(&sc->sc_tx_lock);
+//	mutex_enter(&sc->sc_tx_lock);
 	while ((ve = virtio_pull_chain(sc->sc_tx_vq, &len))) {
 //		TRACE;
 		virtio_free_chain(ve);
@@ -828,7 +828,7 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 			mac_tx_update(sc->sc_mac_handle);
 		}
 	}
-	mutex_exit(&sc->sc_tx_lock);
+//	mutex_exit(&sc->sc_tx_lock);
 }
 
 /*
@@ -923,7 +923,7 @@ virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 	ve_hdr->qe_next = ve;
 
 //	TRACE;
-	vitio_push_chain(ve_hdr);
+	virtio_push_chain(ve_hdr);
 
 	return (B_TRUE);
 }
@@ -935,7 +935,7 @@ virtio_net_tx(void *arg, mblk_t *mp)
 	mblk_t	*nmp;
 
 //	TRACE;
-	mutex_enter(&sc->sc_tx_lock);
+//	mutex_enter(&sc->sc_tx_lock);
 
 	while (mp != NULL) {
 		nmp = mp->b_next;
@@ -951,7 +951,7 @@ virtio_net_tx(void *arg, mblk_t *mp)
 	}
 
 
-	mutex_exit(&sc->sc_tx_lock);
+//	mutex_exit(&sc->sc_tx_lock);
 
 	return (mp);
 }

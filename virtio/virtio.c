@@ -345,6 +345,8 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	vq->vq_avail = (void*)(((char*)vq->vq_descs) + vq->vq_availoffset);
 	vq->vq_usedoffset = allocsize1;
 	vq->vq_used = (void*)(((char*)vq->vq_descs) + vq->vq_usedoffset);
+	vq->vq_avail_idx = -1;
+	vq->vq_used_idx = -1;
 
 	/* free slot management */
 	vq->vq_entries = kmem_zalloc(sizeof(struct vq_entry)*vq_size,
@@ -476,11 +478,11 @@ virtio_queue_show(struct virtqueue *vq)
 }
 
 void
-vitio_push_chain(struct vq_entry *qe)
+virtio_push_chain(struct vq_entry *qe)
 {
 	struct virtqueue *vq = qe->qe_queue;
 	struct vq_entry *head = qe;
-	int i = 0;
+	int idx;
 
 	ASSERT(qe);
 
@@ -493,14 +495,12 @@ vitio_push_chain(struct vq_entry *qe)
 
 		}
 
-		i++;
 		qe = qe->qe_next;
 	} while (qe);
 
-	mutex_enter(&vq->vq_aring_lock);
-	/* Do an other pass, adding the descs to the ring. Now with the
-	 * avail ring mutex held. */
-	vq->vq_avail->ring[(vq->vq_avail_idx++) % vq->vq_num] = head->qe_index;
+
+	idx = atomic_inc_16_nv(&vq->vq_avail_idx) - 1;
+	vq->vq_avail->ring[idx % vq->vq_num] = head->qe_index;
 
 	/* Sync the part of the ring that has been filled. */
 	/* XXX worth the trouble? Maybe just sync the whole mapping? */
@@ -518,7 +518,6 @@ vitio_push_chain(struct vq_entry *qe)
 	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
 		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
 
-	mutex_exit(&vq->vq_aring_lock);
 
 	virtio_notify(vq);
 }
@@ -531,7 +530,6 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	struct vq_entry *tmp;
 	int slot;
 	int usedidx;
-	int i = 0;
 
 	/* Sync idx (and flags) */
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
@@ -540,10 +538,9 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	if (vq->vq_used_idx == vq->vq_used->idx)
 		return NULL;
 
-	i++;
-	mutex_enter(&vq->vq_uring_lock);
-	usedidx = vq->vq_used_idx++;
-	mutex_exit(&vq->vq_uring_lock);
+//	mutex_enter(&vq->vq_uring_lock);
+	usedidx = atomic_inc_16_nv(&vq->vq_used_idx) - 1;
+//	mutex_exit(&vq->vq_uring_lock);
 
 	usedidx %= vq->vq_num;
 
@@ -574,8 +571,6 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 		ASSERT(tmp->qe_next->qe_index == tmp->qe_desc->next);
 
 		tmp = tmp->qe_next;
-
-		i++;
 	}
 
 	ASSERT(tmp->qe_next == NULL);
