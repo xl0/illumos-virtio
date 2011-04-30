@@ -623,7 +623,7 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
 	//	TRACE;
-	virtio_push_chain(ve_hdr);
+	virtio_push_chain(ve_hdr, B_FALSE);
 
 	return (0);
 
@@ -659,7 +659,7 @@ static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
 	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
 		sc->sc_rxbuf_size, B_FALSE);
 
-	virtio_push_chain(ve);
+	virtio_push_chain(ve, B_FALSE);
 
 	return 0;
 }
@@ -669,19 +669,24 @@ static int vioif_populate_rx(struct vioif_softc *sc, int kmflag)
 	int i = 0;
 	int ret = 0;
 
-	for (;;) {
-		if (sc->sc_merge) {
+	if (sc->sc_merge) {
+		for (;;) {
 			ret = vioif_add_rx_merge(sc, kmflag);
-		} else {
-			ret = vioif_add_rx_single(sc, kmflag);
+			if (ret)
+				break;
+			i++;
 		}
-
-		if (ret)
-			break;
-
-		i++;
-
+	} else {
+		for (;;) {
+			ret = vioif_add_rx_single(sc, kmflag);
+			if (ret)
+				break;
+			i++;
+		}
 	}
+
+	if (i)
+		virtio_sync_vq(sc->sc_rx_vq);
 
 	return i;
 }
@@ -923,7 +928,7 @@ virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 	ve_hdr->qe_next = ve;
 
 //	TRACE;
-	virtio_push_chain(ve_hdr);
+	virtio_push_chain(ve_hdr, B_TRUE);
 
 	return (B_TRUE);
 }

@@ -478,7 +478,30 @@ virtio_queue_show(struct virtqueue *vq)
 }
 
 void
-virtio_push_chain(struct vq_entry *qe)
+virtio_sync_vq(struct virtqueue *vq)
+{
+	/* Sync the part of the ring that has been filled. */
+	/* XXX worth the trouble? Maybe just sync the whole mapping? */
+	(void) ddi_dma_sync(vq->vq_dma_handle,
+		vq->vq_availoffset + sizeof(struct vring_avail) +
+			((sizeof(uint16_t) * vq->vq_avail->idx )),
+		sizeof(uint16_t) * (vq->vq_avail_idx - vq->vq_avail->idx),
+		DDI_DMA_SYNC_FORDEV);
+
+	/* Yes, we need to make sure the device sees the idx update after
+	 * it sees the ring update. */
+	vq->vq_avail->idx = vq->vq_avail_idx;
+
+	/* Sync the idx and flags */
+	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
+		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
+
+
+	virtio_notify(vq);
+}
+
+void
+virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 {
 	struct virtqueue *vq = qe->qe_queue;
 	struct vq_entry *head = qe;
@@ -502,24 +525,9 @@ virtio_push_chain(struct vq_entry *qe)
 	idx = atomic_inc_16_nv(&vq->vq_avail_idx) - 1;
 	vq->vq_avail->ring[idx % vq->vq_num] = head->qe_index;
 
-	/* Sync the part of the ring that has been filled. */
-	/* XXX worth the trouble? Maybe just sync the whole mapping? */
-	(void) ddi_dma_sync(vq->vq_dma_handle,
-		vq->vq_availoffset + sizeof(struct vring_avail) +
-			((sizeof(uint16_t) * vq->vq_avail->idx )),
-		/*sizeof(uint16_t) * (vq->vq_avail_idx - vq->vq_avail->idx)*/ 32,
-		DDI_DMA_SYNC_FORDEV);
+	if (sync)
+		virtio_sync_vq(vq);
 
-	/* Yes, we need to make sure the device sees the idx update after
-	 * it sees the ring update. */
-	vq->vq_avail->idx = vq->vq_avail_idx;
-
-	/* Sync the idx and flags */
-	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
-		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
-
-
-	virtio_notify(vq);
 }
 
 /* Get a chain of descriptors from the used ring, if one is available. */
@@ -531,16 +539,19 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	int slot;
 	int usedidx;
 
-	/* Sync idx (and flags) */
-	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
-		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
+	/* Sync idx (and flags), but only we don't have any backlog
+	 * from the previous sync. */
+	if (vq->vq_used_idx == vq->vq_used->idx) {
+		ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
+			sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
 
-	if (vq->vq_used_idx == vq->vq_used->idx)
-		return NULL;
+		/* Still nothing? Bye.*/
+		if (vq->vq_used_idx == vq->vq_used->idx)
+			return NULL;
+	}
 
-//	mutex_enter(&vq->vq_uring_lock);
+
 	usedidx = atomic_inc_16_nv(&vq->vq_used_idx) - 1;
-//	mutex_exit(&vq->vq_uring_lock);
 
 	usedidx %= vq->vq_num;
 
@@ -559,21 +570,17 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 		sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
 	head = tmp = &vq->vq_entries[slot];
 
-
-	/* Sanity-check the rest of the chain. */
-	while (tmp->qe_desc->flags & VRING_DESC_F_NEXT) {
-		/* Sync the next descriptor */
+	/* Sync the rest of the chain*/
+	while (tmp->qe_next) {
+		tmp = tmp->qe_next;
 		ddi_dma_sync(vq->vq_dma_handle,
-			sizeof(struct vring_desc) * tmp->qe_next->qe_index,
+			sizeof(struct vring_desc) * tmp->qe_index,
 			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
 
-		ASSERT(tmp->qe_next);
-		ASSERT(tmp->qe_next->qe_index == tmp->qe_desc->next);
 
-		tmp = tmp->qe_next;
+
+
 	}
-
-	ASSERT(tmp->qe_next == NULL);
 
 	return head;
 }

@@ -212,7 +212,9 @@ void virtio_show_features(struct virtio_softc *sc, uint32_t features);
 
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 	uint32_t paddr, uint16_t len, bool write);
-void vitio_push_chain(struct vq_entry *qe);
+void virtio_push_chain(struct vq_entry *qe, boolean_t sync);
+void virtio_sync_vq(struct virtqueue *vq);
+
 struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct vq_entry *ve);
 
