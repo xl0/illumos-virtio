@@ -224,7 +224,7 @@ static ddi_device_acc_attr_t virtio_vq_devattr = {
 /*
  * Initialize vq structure.
  */
-static int
+static void
 virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 {
 	int i;
@@ -247,7 +247,6 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 			MUTEX_DRIVER, sc->sc_icookie);
 	mutex_init(&vq->vq_uring_lock, "virtio",
 			MUTEX_DRIVER, sc->sc_icookie);
-	return (0);
 }
 
 
@@ -357,16 +356,13 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_zalloc;
 	}
 
-	if (virtio_init_vq(sc, vq))
-		goto out_init;
+	virtio_init_vq(sc, vq);
 
 	dev_err(sc->sc_dev, CE_NOTE,
 		   "allocated %u byte for virtqueue %d for %s, "
 		   "size %d\n", allocsize, index, name, vq_size);
 	return vq;
 
-out_init:
-	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
 out_zalloc:
 	ddi_dma_unbind_handle(vq->vq_dma_handle);
 out_bind:
@@ -539,7 +535,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	int slot;
 	int usedidx;
 
-	/* Sync idx (and flags), but only we don't have any backlog
+	/* Sync idx (and flags), but only if we don't have any backlog
 	 * from the previous sync. */
 	if (vq->vq_used_idx == vq->vq_used->idx) {
 		ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
@@ -576,10 +572,6 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 		ddi_dma_sync(vq->vq_dma_handle,
 			sizeof(struct vring_desc) * tmp->qe_index,
 			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
-
-
-
-
 	}
 
 	return head;

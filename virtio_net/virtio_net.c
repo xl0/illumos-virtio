@@ -270,11 +270,15 @@ struct vioif_softc {
 	kstat_t                 *sc_intrstat;
 	kmem_cache_t		*sc_rxbuf_cache;
 
-	ulong_t			sc_rxbuf_num;
+	ulong_t			sc_rxloan;
+
+	unsigned int		sc_rxcopy_thresh;
 };
 
 #define ETHERVLANMTU    (ETHERMAX + 4)
 
+/* We win a bit on header alignment, but the host wins a lot
+ * more on moving aligned buffers! */
 #define VIOIF_IP_ALIGN 0
 /*
 #define VIOIF_TX_SIZE (VIOIF_IP_ALIGN + \
@@ -342,7 +346,7 @@ static void vioif_rx_free(caddr_t free_arg)
 	struct vioif_softc *sc = buf->b_sc;
 
 	kmem_cache_free(sc->sc_rxbuf_cache, buf);
-	atomic_add_long(&sc->sc_rxbuf_num, -1);
+	atomic_dec_ulong(&sc->sc_rxloan);
 
 //	struct vq_entry *ve = (struct vq_entry*) free_arg;
 
@@ -564,7 +568,7 @@ int
 virtio_net_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
 {
 	TRACE;
-	return DDI_FAILURE;
+	return DDI_SUCCESS;
 }
 
 int
@@ -647,17 +651,22 @@ static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
 		return -1;
 	}
 
-	buf = kmem_cache_alloc(sc->sc_rxbuf_cache, kmflag);
+	buf = sc->sc_rxbufs[ve->qe_index];
+
+	/* This ventry's buffer has been loaned upstream, get a new one. */
+	if (!buf) {
+		buf = kmem_cache_alloc(sc->sc_rxbuf_cache, kmflag);
+		sc->sc_rxbufs[ve->qe_index] = buf;
+	}
+
 	if (!buf) {
 		dev_err(sc->sc_dev, CE_WARN, "Can't allocate rx buffer");
 		vq_free_entry(sc->sc_rx_vq, ve);
 		return -1;
 	}
 
-	sc->sc_rxbufs[ve->qe_index] = buf;
-
-	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr,
-		sc->sc_rxbuf_size, B_FALSE);
+	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr + VIOIF_IP_ALIGN,
+		sc->sc_rxbuf_size - VIOIF_IP_ALIGN, B_FALSE);
 
 	virtio_push_chain(ve, B_FALSE);
 
@@ -722,7 +731,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		}
 
 		buf = sc->sc_rxbufs[ve_hdr->qe_index];
-		sc->sc_rxbufs[ve_hdr->qe_index] = NULL;
+//		sc->sc_rxbufs[ve_hdr->qe_index] = NULL;
 
 //		cmn_err(CE_NOTE, "pull hdr buf[%d] b_buf = 0x%p b_paddr=0x%x",
 //			ve_hdr->qe_index, buf_hdr->b_buf, buf_hdr->b_paddr);
@@ -741,7 +750,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		mp->b_wptr = mp->b_rptr + len;
 
 		virtio_free_chain(ve_hdr);
-		kmem_cache_free(sc->sc_rxbuf_cache, buf);
+//		kmem_cache_free(sc->sc_rxbuf_cache, buf);
 
 		mac_rx(sc->sc_mac_handle, NULL, mp);
 		
@@ -766,7 +775,6 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 
 	while ((ve = virtio_pull_chain(sc->sc_rx_vq, &len))) {
 
-
 		if (ve->qe_next) {
 			cmn_err(CE_NOTE, "Merged buffer len %ld", len);
 			virtio_free_chain(ve);
@@ -774,31 +782,53 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 		}
 
 		buf = sc->sc_rxbufs[ve->qe_index];
-		sc->sc_rxbufs[ve->qe_index] = NULL;
+		ASSERT(buf);
+
+//		cmn_err(CE_NOTE, "l=%ld", len);
 
 		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
-
-		virtio_free_chain(ve);
-
-//		cmn_err(CE_NOTE, "len = %ld", len);
-
 		len -= sizeof(struct virtio_net_hdr_mrg);
 
-//		cmn_err(CE_NOTE, "Upstreaming %d", ve->qe_index);
+		/* We copy the small packets and reuse the buffers. For
+		 * bigger ones, we loan the buffers upstream. */
+		if (len < sc->sc_rxcopy_thresh) {
+			mp = allocb(len, 0);
+			if (!mp) {
+				cmn_err(CE_WARN, "Failed to allocale mblock!");
+				virtio_free_chain(ve);
+				break;
+			}
 
-		mp = desballoc((char *)buf->b_buf + sizeof(struct virtio_net_hdr_mrg),
-				len, 0, &buf->b_frtn);
-		if (!mp) {
-			cmn_err(CE_WARN, "Failed to allocale mblock!");
-			kmem_cache_free(sc->sc_rxbuf_cache, buf);
-			virtio_free_chain(ve);
-			break;
-		}
-		mp->b_wptr = mp->b_rptr + len;
+			bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr_mrg),
+					mp->b_rptr, len);
 
-		atomic_add_long(&sc->sc_rxbuf_num, 1);
+			mp->b_wptr = mp->b_rptr + len;
+
+		} else {
+	//		cmn_err(CE_NOTE, "len = %ld", len);
+
+
+	//		cmn_err(CE_NOTE, "Upstreaming %d", ve->qe_index);
+
+			mp = desballoc((char *)buf->b_buf +
+					sizeof(struct virtio_net_hdr_mrg) +
+					VIOIF_IP_ALIGN,
+					len, 0, &buf->b_frtn);
+			if (!mp) {
+				cmn_err(CE_WARN, "Failed to allocale mblock!");
+				virtio_free_chain(ve);
+				break;
+			}
+			mp->b_wptr = mp->b_rptr + len;
+
+			atomic_inc_ulong(&sc->sc_rxloan);
+			/* Buffer loanded, we will have to allocte a new one
+			 * for this slot. */
+			sc->sc_rxbufs[ve->qe_index] = NULL;
+		}	
+
+		virtio_free_chain(ve);
 		mac_rx(sc->sc_mac_handle, NULL, mp);
-		
 		i++;
 	}
 
@@ -822,16 +852,15 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 
 	size_t len;
 
+	int i = 0;
+
 //	TRACE;
 
 //	mutex_enter(&sc->sc_tx_lock);
 	while ((ve = virtio_pull_chain(sc->sc_tx_vq, &len))) {
 //		TRACE;
 		virtio_free_chain(ve);
-		if (sc->sc_tx_stopped) {
-			sc->sc_tx_stopped = 0;
-			mac_tx_update(sc->sc_mac_handle);
-		}
+		i++;
 	}
 //	mutex_exit(&sc->sc_tx_lock);
 }
@@ -1146,6 +1175,7 @@ virtio_net_dev_features(struct vioif_softc *sc)
 			VIRTIO_NET_F_CSUM |
 			VIRTIO_NET_F_MAC |
 			VIRTIO_NET_F_STATUS |
+			VIRTIO_NET_F_HOST_TSO4 |
 //			VIRTIO_NET_F_CTRL_VQ |
 //			VIRTIO_NET_F_CTRL_RX |
 			VIRTIO_NET_F_MRG_RXBUF | 
@@ -1387,7 +1417,12 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	mutex_init(&sc->sc_tx_lock, "virtio",
 			MUTEX_DRIVER, vsc->sc_icookie);
 
-	sc->sc_rxbuf_num = 0;
+	sc->sc_rxloan = 0;
+	sc->sc_rxcopy_thresh = 300;
+
+	sc->sc_macp = macp;
+	vioif_populate_rx(sc, KM_SLEEP);
+	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Registering the mac!");
 	ret = mac_register(macp, &sc->sc_mac_handle);
@@ -1396,14 +1431,9 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_register;
 	}
 
-	sc->sc_macp = macp;
-
-	vioif_populate_rx(sc, KM_SLEEP);
-
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 
-	buf = &sc->sc_txbufs[0];
+//	buf = &sc->sc_txbufs[0];
 	dev_err(sc->sc_dev, CE_NOTE, "Attach done!");
 
 	return (DDI_SUCCESS);
@@ -1460,8 +1490,8 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 		return (DDI_FAILURE);
 	}
 
-	dev_err(sc->sc_dev, CE_NOTE, "rx buffers = %ld", sc->sc_rxbuf_num);
-	if (sc->sc_rxbuf_num) {
+	dev_err(sc->sc_dev, CE_NOTE, "rx buffers = %ld", sc->sc_rxloan);
+	if (sc->sc_rxloan) {
 		cmn_err(CE_NOTE, "Some rx buffers are still upstream, Not detaching");
 		return (DDI_FAILURE);
 	}
@@ -1472,12 +1502,12 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 
 	mac_free(sc->sc_macp);
 
+	virtio_device_reset(&sc->sc_virtio);
 	ddi_remove_intr(devinfo, 0, sc->sc_virtio.sc_icookie);
+	vioif_free_mems(sc);
 	virtio_free_vq(sc->sc_rx_vq);
 	virtio_free_vq(sc->sc_tx_vq);
 
-	virtio_device_reset(&sc->sc_virtio);
-	vioif_free_mems(sc);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 
 	kmem_cache_destroy(sc->sc_rxbuf_cache);

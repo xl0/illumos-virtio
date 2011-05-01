@@ -117,7 +117,7 @@ struct virtqueue {
 
 	/* free entry management */
 	struct vq_entry		*vq_entries;
-	list_t		vq_freelist;
+	list_t			vq_freelist;
 	kmutex_t		vq_freelist_lock;
 
 	/* enqueue/dequeue status */
