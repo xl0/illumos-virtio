@@ -862,6 +862,10 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 		virtio_free_chain(ve);
 		i++;
 	}
+	if (sc->sc_tx_stopped && i) {
+		sc->sc_tx_stopped = 0;
+		mac_tx_update(sc->sc_mac_handle);
+	}
 //	mutex_exit(&sc->sc_tx_lock);
 }
 
