@@ -719,8 +719,8 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		ASSERT(ve_hdr->qe_next);
 		ve = ve_hdr->qe_next;
 
-		if (len < ETHERMIN + sizeof(struct virtio_net_hdr_mrg)) {
-			cmn_err("Rx: Packet too small: %d",
+		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+			cmn_err(CE_WARN, "Rx: Chain too small: %ld",
 				len - sizeof(struct virtio_net_hdr_mrg));
 			virtio_free_chain(ve);
 			continue;
@@ -792,8 +792,8 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 		ASSERT(buf);
 
 
-		if (len < ETHERMIN + sizeof(struct virtio_net_hdr_mrg)) {
-			cmn_err("Rx: Packet too small: %d",
+		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+			cmn_err(CE_WARN, "Rx: Cnain too small: %ld",
 				len - sizeof(struct virtio_net_hdr_mrg));
 			virtio_free_chain(ve);
 			continue;
@@ -1455,11 +1455,11 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	return (DDI_SUCCESS);
 
 exit_int:
-	mac_unregitser(sc->sc_mac_handle);
+	mac_unregister(sc->sc_mac_handle);
 exit_register:
 	mac_free(macp);
 exit_macalloc:
-	virtio_net_free_mems(sc);
+	vioif_free_mems(sc);
 exit_alloc_mems:
 	virtio_free_vq(sc->sc_tx_vq);
 exit_alloc2:
