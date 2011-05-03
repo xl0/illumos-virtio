@@ -719,6 +719,13 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		ASSERT(ve_hdr->qe_next);
 		ve = ve_hdr->qe_next;
 
+		if (len < ETHERMIN + sizeof(struct virtio_net_hdr_mrg)) {
+			cmn_err("Rx: Packet too small: %d",
+				len - sizeof(struct virtio_net_hdr_mrg));
+			virtio_free_chain(ve);
+			continue;
+		}
+
 		ddi_dma_sync(buf->b_dmah, 0, len , DDI_DMA_SYNC_FORCPU);
 
 		len -= sizeof(struct virtio_net_hdr);
@@ -783,6 +790,14 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 
 		buf = sc->sc_rxbufs[ve->qe_index];
 		ASSERT(buf);
+
+
+		if (len < ETHERMIN + sizeof(struct virtio_net_hdr_mrg)) {
+			cmn_err("Rx: Packet too small: %d",
+				len - sizeof(struct virtio_net_hdr_mrg));
+			virtio_free_chain(ve);
+			continue;
+		}
 
 //		cmn_err(CE_NOTE, "l=%ld", len);
 
