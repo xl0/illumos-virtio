@@ -1406,23 +1406,12 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 */
 
-
-
 	if (vioif_alloc_mems(sc))
 		goto exit_alloc_mems;
 
 	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
 		dev_err(devinfo, CE_WARN, "Failed to alocate a mac_register");
 		goto exit_macalloc;
-	}
-
-	/*
-	* Establish interrupt handler.
-	*/
-	if (ddi_add_intr(devinfo, 0, NULL, NULL,
-			vioif_intr, (caddr_t)sc)) {
-		dev_err(devinfo, CE_WARN, "unable to add interrupt");
-		goto exit_int;
 	}
 
 	macp->m_type_ident = MAC_PLUGIN_IDENT_ETHER;
@@ -1450,6 +1439,14 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_register;
 	}
 
+	/*
+	 * Establish interrupt handler.
+	 */
+	if (ddi_add_intr(devinfo, 0, NULL, NULL,
+			vioif_intr, (caddr_t)sc)) {
+		dev_err(devinfo, CE_WARN, "unable to add interrupt");
+		goto exit_int;
+	}
 
 
 //	buf = &sc->sc_txbufs[0];
@@ -1457,12 +1454,12 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	return (DDI_SUCCESS);
 
-exit_register:
-	ddi_remove_intr(devinfo, 0, vsc->sc_icookie);
 exit_int:
+	mac_unregitser(sc->sc_mac_handle);
+exit_register:
 	mac_free(macp);
 exit_macalloc:
-//	virtio_net_free_mems(sc);
+	virtio_net_free_mems(sc);
 exit_alloc_mems:
 	virtio_free_vq(sc->sc_tx_vq);
 exit_alloc2:
@@ -1478,7 +1475,6 @@ exit_map:
 	kstat_delete(sc->sc_intrstat);
 exit_inttype:
 exit_cookie:
-//exit_int_prio:
 exit_match:
 exit_pci_conf:
 	kmem_free(sc, sizeof (struct vioif_softc));
@@ -1515,6 +1511,8 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 		return (DDI_FAILURE);
 	}
 
+	ddi_remove_intr(devinfo, 0, sc->sc_virtio.sc_icookie);
+
 	if (mac_unregister(sc->sc_mac_handle)) {
 		return (DDI_FAILURE);
 	}
@@ -1522,7 +1520,6 @@ virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	mac_free(sc->sc_macp);
 
 	virtio_device_reset(&sc->sc_virtio);
-	ddi_remove_intr(devinfo, 0, sc->sc_virtio.sc_icookie);
 	vioif_free_mems(sc);
 	virtio_free_vq(sc->sc_rx_vq);
 	virtio_free_vq(sc->sc_tx_vq);
