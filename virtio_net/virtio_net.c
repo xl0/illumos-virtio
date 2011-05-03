@@ -604,13 +604,17 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 		goto exit_vq;
 	}
 
-	buf = kmem_cache_alloc(sc->sc_rxbuf_cache, kmflag);
+	buf = sc->sc_rxbufs[ve_hdr->qe_index];
+
+	if (!buf) {
+		/* First run, allocate the buffer. */
+		buf = kmem_cache_alloc(sc->sc_rxbuf_cache, kmflag);
+		sc->sc_rxbufs[ve_hdr->qe_index] = buf;
+	}
 	if (!buf) {
 		dev_err(sc->sc_dev, CE_WARN, "Can't allocate rx buffer");
 		goto exit_buf;
 	}
-
-	sc->sc_rxbufs[ve_hdr->qe_index] = buf;
 
 	virtio_ve_set(ve_hdr, buf->b_dmah, buf->b_paddr,
 		sizeof(struct virtio_net_hdr), B_FALSE);
@@ -718,6 +722,8 @@ static int vioif_rx_single(struct vioif_softc *sc)
 
 		ASSERT(ve_hdr->qe_next);
 		ve = ve_hdr->qe_next;
+
+//		cmn_err(CE_NOTE, "l=%ld", len);
 
 		if (len < sizeof(struct virtio_net_hdr_mrg)) {
 			cmn_err(CE_WARN, "Rx: Chain too small: %ld",
@@ -909,6 +915,7 @@ vioif_intr(caddr_t arg)
 //	if (i) {
 //		cmn_err(CE_NOTE, "Pushed %d blocks to mac", i);
 //	}
+
 	i = vioif_populate_rx(sc, KM_NOSLEEP);
 //	if (i) {
 //		cmn_err(CE_NOTE, "Pushed %d rx descriptors", i);
@@ -1182,7 +1189,7 @@ virtio_net_show_features(struct vioif_softc *sc, uint32_t features)
 
 /*
  * Find out which features are supported by the device and
- * chose which ones we wish to use.
+ * choose which ones we wish to use.
  */
 static int
 virtio_net_dev_features(struct vioif_softc *sc)
