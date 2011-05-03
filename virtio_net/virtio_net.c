@@ -726,6 +726,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 			continue;
 		}
 
+		buf = sc->sc_rxbufs[ve_hdr->qe_index];
 		ddi_dma_sync(buf->b_dmah, 0, len , DDI_DMA_SYNC_FORCPU);
 
 		len -= sizeof(struct virtio_net_hdr);
@@ -737,7 +738,6 @@ static int vioif_rx_single(struct vioif_softc *sc)
 			break;
 		}
 
-		buf = sc->sc_rxbufs[ve_hdr->qe_index];
 //		sc->sc_rxbufs[ve_hdr->qe_index] = NULL;
 
 //		cmn_err(CE_NOTE, "pull hdr buf[%d] b_buf = 0x%p b_paddr=0x%x",
