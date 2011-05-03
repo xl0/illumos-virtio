@@ -344,8 +344,6 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	vq->vq_avail = (void*)(((char*)vq->vq_descs) + vq->vq_availoffset);
 	vq->vq_usedoffset = allocsize1;
 	vq->vq_used = (void*)(((char*)vq->vq_descs) + vq->vq_usedoffset);
-	vq->vq_avail_idx = -1;
-	vq->vq_used_idx = -1;
 
 	/* free slot management */
 	vq->vq_entries = kmem_zalloc(sizeof(struct vq_entry)*vq_size,
