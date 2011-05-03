@@ -243,10 +243,6 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 
 	mutex_init(&vq->vq_freelist_lock, "virtio",
 			MUTEX_DRIVER, sc->sc_icookie);
-	mutex_init(&vq->vq_aring_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_icookie);
-	mutex_init(&vq->vq_uring_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_icookie);
 }
 
 
@@ -396,8 +392,6 @@ virtio_free_vq(struct virtqueue *vq)
 	ddi_dma_free_handle(&vq->vq_dma_handle);
 
 	mutex_destroy(&vq->vq_freelist_lock);
-	mutex_destroy(&vq->vq_uring_lock);
-	mutex_destroy(&vq->vq_aring_lock);
 
 	kmem_free(vq, sizeof(struct virtqueue));
 }
