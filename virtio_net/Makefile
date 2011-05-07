@@ -7,11 +7,11 @@ LDFLAGS=-r -dy -N misc/mac -N drv/virtio
 #CC=/opt/SUNWspro/bin/cc
 CC=gcc
 LD=/usr/ccs/bin/ld
-all: virtio_net
+all: vioif
 
-virtio_net: virtio_net.c ../virtio/virtiovar.h
-	$(CC) $(CFLAGS) -c virtio_net.c -o virtio_net.o
-	$(LD) $(LDFLAGS) virtio_net.o -o virtio_net
+vioif: vioif.c ../virtio/virtiovar.h
+	$(CC) $(CFLAGS) -c vioif.c -o vioif.o
+	$(LD) $(LDFLAGS) vioif.o -o vioif
 
 clean:
-	rm -f virtio_net virtio_net.o
+	rm -f vioif vioif.o
