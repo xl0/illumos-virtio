@@ -183,33 +183,33 @@ struct virtio_net_ctrl_vlan {
 	uint16_t id;
 } __packed;
 
-static int virtio_net_attach(dev_info_t *, ddi_attach_cmd_t);
-static int virtio_net_detach(dev_info_t *, ddi_detach_cmd_t);
-static int virtio_net_quiesce(dev_info_t *);
+static int vioif_attach(dev_info_t *, ddi_attach_cmd_t);
+static int vioif_detach(dev_info_t *, ddi_detach_cmd_t);
+static int vioif_quiesce(dev_info_t *);
 
 
-DDI_DEFINE_STREAM_OPS(virtio_net_ops,
+DDI_DEFINE_STREAM_OPS(vioif_ops,
 	nulldev,		/* identify */
 	nulldev,		/* probe */
-	virtio_net_attach,	/* attach */
-	virtio_net_detach,	/* detach */
+	vioif_attach,	/* attach */
+	vioif_detach,	/* detach */
 	nodev,			/* reset */
 	NULL,			/* cb_ops */
 	D_MP,			/* bus_ops */
 	NULL,			/* power */
-	virtio_net_quiesce	/* quiesce */
+	vioif_quiesce	/* quiesce */
 );
 
 
-static char virtio_net_ident[] = "VirtIO ethernet driver";
+static char vioif_ident[] = "VirtIO ethernet driver";
 
 /* Standard Module linkage initialization for a Streams driver */
 extern struct mod_ops mod_driverops;
 
 static struct modldrv modldrv = {
 	&mod_driverops,		/* Type of module.  This one is a driver */
-	virtio_net_ident,	/* short description */
-	&virtio_net_ops		/* driver specific ops */
+	vioif_ident,	/* short description */
+	&vioif_ops		/* driver specific ops */
 };
 
 static struct modlinkage modlinkage = {
@@ -220,7 +220,7 @@ static struct modlinkage modlinkage = {
 	},
 };
 
-ddi_device_acc_attr_t virtio_net_attr = {
+ddi_device_acc_attr_t vioif_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC, /* virtio is always narive byte order */
 	DDI_STRICTORDER_ACC
@@ -265,7 +265,7 @@ struct vioif_softc {
 	/* Tx bufs - virtio_net_hdr + a copy of the packet. */
 	struct vioif_buf	*sc_txbufs;
 	kmutex_t		sc_ctrl_wait_lock;
-	kmutex_t		sc_tx_lock;
+	kmutex_t		sc_big_lock;
 
 	kstat_t                 *sc_intrstat;
 	kmem_cache_t		*sc_rxbuf_cache;
@@ -300,7 +300,7 @@ struct vioif_softc {
 
 
 static link_state_t
-virtio_net_link_state(struct vioif_softc *sc)
+vioif_link_state(struct vioif_softc *sc)
 {
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS) {
 		if (virtio_read_device_config_2(&sc->sc_virtio,
@@ -319,7 +319,7 @@ virtio_net_link_state(struct vioif_softc *sc)
 	return (LINK_STATE_UP);
 }
 
-static ddi_dma_attr_t virtio_net_buf_dma_attr = {
+static ddi_dma_attr_t vioif_buf_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
 	0xFFFFFFFF,    /* high address */
@@ -334,7 +334,7 @@ static ddi_dma_attr_t virtio_net_buf_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
-static ddi_device_acc_attr_t virtio_net_bufattr = {
+static ddi_device_acc_attr_t vioif_bufattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
@@ -364,7 +364,7 @@ static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 	unsigned int nsegments;
 	size_t len;
 
-	if (ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_buf_dma_attr,
+	if (ddi_dma_alloc_handle(sc->sc_dev, &vioif_buf_dma_attr,
 		DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
 		
 		dev_err(sc->sc_dev, CE_WARN,
@@ -373,7 +373,7 @@ static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 	}
 
 	if (ddi_dma_mem_alloc(buf->b_dmah, sc->sc_rxbuf_size,
-		&virtio_net_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+		&vioif_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 		NULL, &buf->b_buf, &len, &buf->b_acch)) {
 
 		dev_err(sc->sc_dev, CE_WARN,
@@ -498,7 +498,7 @@ vioif_alloc_mems(struct vioif_softc *sc)
 	for (i = 0 ; i < txqsize; i++) {
 		struct vioif_buf *buf = &sc->sc_txbufs[i];
 
-		if (ddi_dma_alloc_handle(sc->sc_dev, &virtio_net_buf_dma_attr,
+		if (ddi_dma_alloc_handle(sc->sc_dev, &vioif_buf_dma_attr,
 			DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
 			
 			dev_err(sc->sc_dev, CE_WARN,
@@ -507,7 +507,7 @@ vioif_alloc_mems(struct vioif_softc *sc)
 		}
  
 		if (ddi_dma_mem_alloc(buf->b_dmah, VIOIF_TX_SIZE,
-			&virtio_net_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			&vioif_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 			NULL, &buf->b_buf, &len, &buf->b_acch)) {
 
 
@@ -558,28 +558,28 @@ exit:
 }
 
 int
-virtio_net_quiesce(dev_info_t *dip)
+vioif_quiesce(dev_info_t *dip)
 {
 	TRACE;
 	return DDI_FAILURE;
 }
 
 int
-virtio_net_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
+vioif_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
 {
 	TRACE;
 	return DDI_SUCCESS;
 }
 
 int
-virtio_net_promisc(void *arg, boolean_t on)
+vioif_promisc(void *arg, boolean_t on)
 {
 	TRACE;
 	return DDI_SUCCESS;
 }
 
 int
-virtio_net_unicst(void *arg, const uint8_t *macaddr)
+vioif_unicst(void *arg, const uint8_t *macaddr)
 {
 	TRACE;
 	return DDI_FAILURE;
@@ -910,6 +910,8 @@ vioif_intr(caddr_t arg)
 	if (!isr_status)
 		return DDI_INTR_UNCLAIMED;
 
+//	mutex_enter(&sc->sc_big_lock);
+
 	vioif_reclaim_used_tx(sc);
 	i = vioif_process_rx(sc);
 //	if (i) {
@@ -920,11 +922,12 @@ vioif_intr(caddr_t arg)
 //	if (i) {
 //		cmn_err(CE_NOTE, "Pushed %d rx descriptors", i);
 //	}
+//	mutex_exit(&sc->sc_big_lock);
 
 	return DDI_INTR_CLAIMED;
 }
 static bool
-virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
+vioif_send(struct vioif_softc *sc, mblk_t *mb)
 {
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
@@ -989,20 +992,20 @@ virtio_net_send(struct vioif_softc *sc, mblk_t *mb)
 }
 
 mblk_t *
-virtio_net_tx(void *arg, mblk_t *mp)
+vioif_tx(void *arg, mblk_t *mp)
 {
 	struct vioif_softc *sc = arg;
 	mblk_t	*nmp;
 
 //	TRACE;
-//	mutex_enter(&sc->sc_tx_lock);
+//	mutex_enter(&sc->sc_big_lock);
 
 	while (mp != NULL) {
 		nmp = mp->b_next;
 		mp->b_next = NULL;
 
-		if (!virtio_net_send(sc, mp)) {
-			cmn_err(CE_NOTE, "##");
+		if (!vioif_send(sc, mp)) {
+//			cmn_err(CE_NOTE, "##");
 			sc->sc_tx_stopped = 1;
 			mp->b_next = nmp;
 			break;
@@ -1011,20 +1014,20 @@ virtio_net_tx(void *arg, mblk_t *mp)
 	}
 
 
-//	mutex_exit(&sc->sc_tx_lock);
+//	mutex_exit(&sc->sc_big_lock);
 
 	return (mp);
 }
 
 int
-virtio_net_start(void *arg)
+vioif_start(void *arg)
 {
 	struct vioif_softc *sc = arg;
 
 	TRACE;
 
 	mac_link_update(sc->sc_mac_handle,
-		virtio_net_link_state(sc));
+		vioif_link_state(sc));
 
 	virtio_start_vq_intr(sc->sc_rx_vq);
 
@@ -1032,7 +1035,7 @@ virtio_net_start(void *arg)
 }
 
 void
-virtio_net_stop(void *arg)
+vioif_stop(void *arg)
 {
 	struct vioif_softc *sc = arg;
 	TRACE;
@@ -1041,7 +1044,7 @@ virtio_net_stop(void *arg)
 
 
 static int
-virtio_net_stat(void *arg, uint_t stat, uint64_t *val)
+vioif_stat(void *arg, uint_t stat, uint64_t *val)
 {
 //	TRACE;
 	cmn_err(CE_NOTE, "stat = %x\n", stat);
@@ -1067,13 +1070,13 @@ virtio_net_stat(void *arg, uint_t stat, uint64_t *val)
 
 static mac_callbacks_t afe_m_callbacks = {
 	/*MC_IOCTL | MC_SETPROP | MC_GETPROP | MC_PROPINFO*/ 0,
-	virtio_net_stat,
-	virtio_net_start,
-	virtio_net_stop,
-	virtio_net_promisc,
-	virtio_net_multicst,
-	virtio_net_unicst,
-	virtio_net_tx,
+	vioif_stat,
+	vioif_start,
+	vioif_stop,
+	vioif_promisc,
+	vioif_multicst,
+	vioif_unicst,
+	vioif_tx,
 	NULL,
 	/*afe_m_ioctl*/ NULL,	/* mc_ioctl */
 	NULL,		/* mc_getcapab */
@@ -1085,7 +1088,7 @@ static mac_callbacks_t afe_m_callbacks = {
 };
 
 static int
-virtio_net_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
+vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 {
 	uint16_t vendor, device, revision, subdevice, subvendor;
 
@@ -1143,7 +1146,7 @@ virtio_net_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 }
 
 static void
-virtio_net_show_features(struct vioif_softc *sc, uint32_t features)
+vioif_show_features(struct vioif_softc *sc, uint32_t features)
 {
 	virtio_show_features(&sc->sc_virtio, features);
 
@@ -1192,7 +1195,7 @@ virtio_net_show_features(struct vioif_softc *sc, uint32_t features)
  * choose which ones we wish to use.
  */
 static int
-virtio_net_dev_features(struct vioif_softc *sc)
+vioif_dev_features(struct vioif_softc *sc)
 {
 	uint32_t host_features;
 
@@ -1209,10 +1212,10 @@ virtio_net_dev_features(struct vioif_softc *sc)
 			VRING_DESC_F_INDIRECT*/);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Host features:");
-	virtio_net_show_features(sc, host_features);
+	vioif_show_features(sc, host_features);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
-	virtio_net_show_features(sc, sc->sc_virtio.sc_features);
+	vioif_show_features(sc, sc->sc_virtio.sc_features);
 
 
 	sc->sc_rxbuf_size = VIOIF_RX_SIZE;
@@ -1227,7 +1230,7 @@ virtio_net_dev_features(struct vioif_softc *sc)
 }
 
 static void
-virtio_net_set_mac(struct vioif_softc *sc)
+vioif_set_mac(struct vioif_softc *sc)
 {
 	int i;
 
@@ -1239,7 +1242,7 @@ virtio_net_set_mac(struct vioif_softc *sc)
 
 /* Get the mac address out of the hardware, or make up one. */
 static void
-virtio_net_get_mac(struct vioif_softc *sc)
+vioif_get_mac(struct vioif_softc *sc)
 {
 	int i;
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MAC) {
@@ -1258,7 +1261,7 @@ virtio_net_get_mac(struct vioif_softc *sc)
 		/* Set the "locally administered" bit */
 		sc->sc_mac[1] |= 2;
 
-		virtio_net_set_mac(sc);
+		vioif_set_mac(sc);
 
 		dev_err(sc->sc_dev, CE_NOTE, "Generated a random Got MAC address: %s",
 			ether_sprintf((struct ether_addr *) sc->sc_mac));
@@ -1267,12 +1270,12 @@ virtio_net_get_mac(struct vioif_softc *sc)
 }
 
 /*
- * virtio_net_attach
+ * vioif_attach
  * @devinfo: pointer to dev_info_t structure
  * @cmd: attach command to process
  */
 static int
-virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
+vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
 	int ret, instance, intr_types;
 	struct vioif_softc *sc;
@@ -1316,7 +1319,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	}
 
-	ret = virtio_net_match(devinfo, pci_conf);
+	ret = vioif_match(devinfo, pci_conf);
 	if (ret)
 		goto exit_match;
 
@@ -1341,7 +1344,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	 * we don't use a persistent stat.  We do it this way to avoid having
 	 * to test for it at run time on the hot path.
 	 */
-	sc->sc_intrstat = kstat_create("virtio_net", instance, "intr", "controller",
+	sc->sc_intrstat = kstat_create("vioif", instance, "intr", "controller",
 		KSTAT_TYPE_INTR, 1, 0);
 	if (sc->sc_intrstat == NULL) {
 		dev_err(devinfo, CE_WARN, "kstat_create failed");
@@ -1352,7 +1355,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* map BAR0 */
 	ret = ddi_regs_map_setup(devinfo, 1, (caddr_t *)&sc->sc_virtio.sc_io_addr,
-		0, 0, &virtio_net_attr, &sc->sc_virtio.sc_ioh);
+		0, 0, &vioif_attr, &sc->sc_virtio.sc_ioh);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "unable to map bar0: [%d]", ret);
 		goto exit_map;
@@ -1365,11 +1368,11 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
 
 
-	ret = virtio_net_dev_features(sc);
+	ret = vioif_dev_features(sc);
 	if (ret)
 		goto exit_features;
 
-	virtio_net_get_mac(sc);
+	vioif_get_mac(sc);
 
 	sc->sc_rxbuf_cache = kmem_cache_create("vioif", sizeof (struct vioif_buf),
 		0, vioif_rx_construct, vioif_rx_descruct,
@@ -1429,7 +1432,7 @@ virtio_net_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	macp->m_min_sdu = 0;
 	macp->m_max_sdu = ETHERMTU;
 	macp->m_margin = VLAN_TAGSZ;
-	mutex_init(&sc->sc_tx_lock, "virtio",
+	mutex_init(&sc->sc_big_lock, "virtio",
 			MUTEX_DRIVER, vsc->sc_icookie);
 
 	sc->sc_rxloan = 0;
@@ -1490,12 +1493,12 @@ exit:
 }
 
 /*
- * virtio_net_detach
+ * vioif_detach
  * @devinfo: pointer to dev_info_t structure
  * @cmd: attach command to process
  */
 static int
-virtio_net_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
+vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 {
 	struct vioif_softc *sc = ddi_get_driver_private(devinfo);
 
@@ -1546,10 +1549,10 @@ _init(void)
 	int ret = 0;
 	TRACE;
 
-	mac_init_ops(&virtio_net_ops, "virtio_net");
+	mac_init_ops(&vioif_ops, "vioif");
 	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
 		TRACE;
-		mac_fini_ops(&virtio_net_ops);
+		mac_fini_ops(&vioif_ops);
 		cmn_err(CE_WARN, "unable to install the driver");
 		return (ret);
 	}
@@ -1565,7 +1568,7 @@ _fini(void)
 
 	ret = mod_remove(&modlinkage);
 	if (ret == DDI_SUCCESS) {
-		mac_fini_ops(&virtio_net_ops);
+		mac_fini_ops(&vioif_ops);
 	}
 
 	return (ret);
