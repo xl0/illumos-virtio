@@ -47,7 +47,7 @@
 #include "util.h"
 #include "virtiovar.h"
 #include "virtioreg.h"
-#define NDEVNAMES	(sizeof(virtio_device_name)/sizeof(char*))
+#define NDEVNAMES	(sizeof(virtiox_device_name)/sizeof(char*))
 #define MINSEG_INDIRECT	2	/* use indirect if nsegs >= this value */
 #define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))& \
 				 ~(VIRTIO_PAGE_SIZE-1))
@@ -57,7 +57,7 @@
  */
 
 void
-virtio_set_status(struct virtio_softc *sc, int status)
+virtiox_set_status(struct virtiox_softc *sc, int status)
 {
 	int old = 0;
 
@@ -74,7 +74,7 @@ virtio_set_status(struct virtio_softc *sc, int status)
  * Negotiate features, save the result in sc->sc_features
  */
 uint32_t
-virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
+virtiox_negotiate_features(struct virtiox_softc *sc, uint32_t guest_features)
 {
 	uint32_t host_features;
 	uint32_t features;
@@ -96,7 +96,7 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 }
 
 void
-virtio_show_features(struct virtio_softc *sc, uint32_t features)
+virtiox_show_features(struct virtiox_softc *sc, uint32_t features)
 {
 	dev_err(sc->sc_dev, CE_NOTE, "Genetic Virtio features:");
 	if (features & VIRTIO_F_RING_INDIRECT_DESC)
@@ -107,35 +107,35 @@ virtio_show_features(struct virtio_softc *sc, uint32_t features)
  * Device configuration registers.
  */
 uint8_t
-virtio_read_device_config_1(struct virtio_softc *sc, int index)
+virtiox_read_device_config_1(struct virtiox_softc *sc, int index)
 {
 	return ddi_get8(sc->sc_ioh,
 		(uint8_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
 }
 
 uint16_t
-virtio_read_device_config_2(struct virtio_softc *sc, int index)
+virtiox_read_device_config_2(struct virtiox_softc *sc, int index)
 {
 	return ddi_get16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
 }
 
 uint32_t
-virtio_read_device_config_4(struct virtio_softc *sc, int index)
+virtiox_read_device_config_4(struct virtiox_softc *sc, int index)
 {
 	return ddi_get32(sc->sc_ioh,
 		(uint32_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
 }
 
 uint64_t
-virtio_read_device_config_8(struct virtio_softc *sc, int index)
+virtiox_read_device_config_8(struct virtiox_softc *sc, int index)
 {
 	return ddi_get64(sc->sc_ioh,
 		(uint64_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
 }
 
 void
-virtio_write_device_config_1(struct virtio_softc *sc,
+virtiox_write_device_config_1(struct virtiox_softc *sc,
 			     int index, uint8_t value)
 {
 	ddi_put8(sc->sc_ioh, 
@@ -144,7 +144,7 @@ virtio_write_device_config_1(struct virtio_softc *sc,
 }
 
 void
-virtio_write_device_config_2(struct virtio_softc *sc,
+virtiox_write_device_config_2(struct virtiox_softc *sc,
 			     int index, uint16_t value)
 {
 	ddi_put16(sc->sc_ioh,
@@ -153,7 +153,7 @@ virtio_write_device_config_2(struct virtio_softc *sc,
 }
 
 void
-virtio_write_device_config_4(struct virtio_softc *sc,
+virtiox_write_device_config_4(struct virtiox_softc *sc,
 			     int index, uint32_t value)
 {
 	ddi_put32(sc->sc_ioh,
@@ -162,7 +162,7 @@ virtio_write_device_config_4(struct virtio_softc *sc,
 }
 
 void
-virtio_write_device_config_8(struct virtio_softc *sc,
+virtiox_write_device_config_8(struct virtiox_softc *sc,
 			     int index, uint64_t value)
 {
 	ddi_put64(sc->sc_ioh,
@@ -174,18 +174,18 @@ virtio_write_device_config_8(struct virtio_softc *sc,
  * Start/stop vq interrupt.  No guarantee.
  */
 void
-virtio_stop_vq_intr(struct virtqueue *vq)
+virtiox_stop_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
 }
 
 void
-virtio_start_vq_intr(struct virtqueue *vq)
+virtiox_start_vq_intr(struct virtqueue *vq)
 {
 	vq->vq_avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
 }
 
-static ddi_dma_attr_t virtio_vq_dma_attr = {
+static ddi_dma_attr_t virtiox_vq_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
 	0xFFFFFFFF,    /* high address */
@@ -200,7 +200,7 @@ static ddi_dma_attr_t virtio_vq_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
-static ddi_dma_attr_t virtio_entry_dma_attr = {
+static ddi_dma_attr_t virtiox_entry_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
 	0xFFFFFFFF,    /* high address */
@@ -215,7 +215,7 @@ static ddi_dma_attr_t virtio_entry_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
-static ddi_device_acc_attr_t virtio_vq_devattr = {
+static ddi_device_acc_attr_t virtiox_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
@@ -225,7 +225,7 @@ static ddi_device_acc_attr_t virtio_vq_devattr = {
  * Initialize vq structure.
  */
 static void
-virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
+virtiox_init_vq(struct virtiox_softc *sc, struct virtqueue *vq)
 {
 	int i;
 	int vq_size = vq->vq_num;
@@ -251,7 +251,7 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
  * Allocate/free a vq.
  */
 struct virtqueue *
-virtio_alloc_vq(struct virtio_softc *sc,
+virtiox_alloc_vq(struct virtiox_softc *sc,
 		int index,
 		int size,
 		const char *name)
@@ -294,7 +294,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 
 	allocsize = allocsize1 + allocsize2;
 
-	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_vq_dma_attr,
+	r = ddi_dma_alloc_handle(sc->sc_dev, &virtiox_vq_dma_attr,
 		DDI_DMA_SLEEP, NULL, &vq->vq_dma_handle);
 	if (r) {
 		dev_err(sc->sc_dev, CE_WARN,
@@ -302,7 +302,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_alloc_handle;
 	}
 
-	r = ddi_dma_mem_alloc(vq->vq_dma_handle, allocsize, &virtio_vq_devattr,
+	r = ddi_dma_mem_alloc(vq->vq_dma_handle, allocsize, &virtiox_vq_devattr,
 		DDI_DMA_CONSISTENT, DDI_DMA_SLEEP, NULL,
 		(caddr_t *)&vq->vq_vaddr, &len, &vq->vq_dma_acch);
 	if (r) {
@@ -350,7 +350,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_zalloc;
 	}
 
-	virtio_init_vq(sc, vq);
+	virtiox_init_vq(sc, vq);
 
 	dev_err(sc->sc_dev, CE_NOTE,
 		   "allocated %u byte for virtqueue %d for %s, "
@@ -371,9 +371,9 @@ out:
 
 
 void
-virtio_free_vq(struct virtqueue *vq)
+virtiox_free_vq(struct virtqueue *vq)
 {
-	struct virtio_softc *sc = vq->vq_owner;
+	struct virtiox_softc *sc = vq->vq_owner;
 
 	TRACE;
 
@@ -428,7 +428,7 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 }
 
 void
-virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
+virtiox_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 	uint32_t paddr, uint16_t len, bool write)
 {
 	qe->qe_desc->addr = paddr;
@@ -443,9 +443,9 @@ virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 }
 
 static void
-virtio_notify(struct virtqueue *vq)
+virtiox_notify(struct virtqueue *vq)
 {
-	struct virtio_softc *vsc = vq->vq_owner;
+	struct virtiox_softc *vsc = vq->vq_owner;
 
 	/* Find out if we need to notify the device. */
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
@@ -460,13 +460,13 @@ virtio_notify(struct virtqueue *vq)
 }
 
 void
-virtio_queue_show(struct virtqueue *vq)
+virtiox_queue_show(struct virtqueue *vq)
 {
 
 }
 
 void
-virtio_sync_vq(struct virtqueue *vq)
+virtiox_sync_vq(struct virtqueue *vq)
 {
 	/* Sync the part of the ring that has been filled. */
 	/* XXX worth the trouble? Maybe just sync the whole mapping? */
@@ -485,11 +485,11 @@ virtio_sync_vq(struct virtqueue *vq)
 		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
 
 
-	virtio_notify(vq);
+	virtiox_notify(vq);
 }
 
 void
-virtio_push_chain(struct vq_entry *qe, boolean_t sync)
+virtiox_push_chain(struct vq_entry *qe, boolean_t sync)
 {
 	struct virtqueue *vq = qe->qe_queue;
 	struct vq_entry *head = qe;
@@ -498,7 +498,7 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 	ASSERT(qe);
 
 	/* Bind the descs together, paddr and len should be already
-	 * set with virtio_ve_set */
+	 * set with virtiox_ve_set */
 	do {
 		if (qe->qe_next) {
 			qe->qe_desc->flags |= VRING_DESC_F_NEXT;
@@ -514,13 +514,13 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 	vq->vq_avail->ring[idx % vq->vq_num] = head->qe_index;
 
 	if (sync)
-		virtio_sync_vq(vq);
+		virtiox_sync_vq(vq);
 
 }
 
 /* Get a chain of descriptors from the used ring, if one is available. */
 struct vq_entry *
-virtio_pull_chain(struct virtqueue *vq, size_t *len)
+virtiox_pull_chain(struct virtqueue *vq, size_t *len)
 {
 	struct vq_entry *head;
 	struct vq_entry *tmp;
@@ -570,7 +570,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 }
 
 void
-virtio_free_chain(struct vq_entry *ve)
+virtiox_free_chain(struct vq_entry *ve)
 {
 	struct vq_entry *tmp;
 
@@ -586,13 +586,13 @@ virtio_free_chain(struct vq_entry *ve)
 }
 
 void
-virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second)
+virtiox_ventry_stick(struct vq_entry *first, struct vq_entry *second)
 {
 	first->qe_next = second;
 }
 
 static int
-virtio_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
+virtiox_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
 	TRACE;
 	if (cmd != DDI_ATTACH && cmd != DDI_RESUME) {
@@ -603,7 +603,7 @@ virtio_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 }
 
 static int
-virtio_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
+virtiox_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 {
 	TRACE;
 	return (DDI_SUCCESS);
@@ -611,14 +611,14 @@ virtio_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 /*
  * Module operations
  */
-struct dev_ops virtio_ops = {
+struct dev_ops virtiox_ops = {
 	DEVO_REV,		/* devo_rev */
 	0,			/* refcnt  */
 	ddi_getinfo_1to1,	/* info */
 	nulldev,		/* identify */
 	nulldev,		/* probe */
-	virtio_attach,		/* attach */
-	virtio_detach,		/* detach */
+	virtiox_attach,		/* attach */
+	virtiox_detach,		/* detach */
 	nodev,			/* reset */
 	NULL,			/* driver operations */
 	NULL,			/* bus operations */
@@ -631,8 +631,8 @@ struct dev_ops virtio_ops = {
  */
 static struct modldrv modldrv = {
 	&mod_driverops, /* Type of module */
-	"VirtIO common library module",
-	&virtio_ops,	/* driver ops */
+	"VirtIO-X common library module",
+	&virtiox_ops,	/* driver ops */
 };
 
 static struct modlinkage modlinkage = {
@@ -646,20 +646,33 @@ static struct modlinkage modlinkage = {
 int
 _init(void)
 {
+	int i;
 	TRACE;
-	return (mod_install(&modlinkage));
+
+	i = mod_install(&modlinkage);
+
+	cmn_err(CE_NOTE, "_init = %d", i);
+	return i;
 }
 
 int
 _fini(void)
 {
+	int i;
 	TRACE;
-	return (mod_remove(&modlinkage));
+
+	i = mod_remove(&modlinkage);
+	cmn_err(CE_NOTE, "_fini = %d", i);
+	return i;
 }
 
 int
 _info(struct modinfo *modinfop)
 {
+	int i;
 	TRACE;
-	return (mod_info(&modlinkage, modinfop));
+
+	i = mod_info(&modlinkage, modinfop);
+	cmn_err(CE_NOTE, "_info = %d", i);
+	return i;
 }

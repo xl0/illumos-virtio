@@ -93,7 +93,7 @@ struct vq_entry {
 };
 
 struct virtqueue {
-	struct virtio_softc	*vq_owner;
+	struct virtiox_softc	*vq_owner;
         unsigned int		vq_num; /* queue size (# of entries) */
 	int			vq_index; /* queue number (0, 1, ...) */
 
@@ -126,7 +126,7 @@ struct virtqueue {
 	int			vq_queued;
 };
 
-struct virtio_softc {
+struct virtiox_softc {
 	dev_info_t		*sc_dev;
 
 	ddi_iblock_cookie_t     sc_icookie;
@@ -165,54 +165,54 @@ struct virtio_softc {
  */
 
 /* public interface */
-uint32_t virtio_negotiate_features(struct virtio_softc*, uint32_t);
-void virtio_set_status(struct virtio_softc *sc, int );
-#define virtio_device_reset(sc)	virtio_set_status((sc), 0)
+uint32_t virtiox_negotiate_features(struct virtiox_softc*, uint32_t);
+void virtiox_set_status(struct virtiox_softc *sc, int );
+#define virtiox_device_reset(sc)	virtiox_set_status((sc), 0)
 
-uint8_t virtio_read_device_config_1(struct virtio_softc *, int);
-uint16_t virtio_read_device_config_2(struct virtio_softc *, int);
-uint32_t virtio_read_device_config_4(struct virtio_softc *, int);
-uint64_t virtio_read_device_config_8(struct virtio_softc *, int);
-void virtio_write_device_config_1(struct virtio_softc *, int, uint8_t);
-void virtio_write_device_config_2(struct virtio_softc *, int, uint16_t);
-void virtio_write_device_config_4(struct virtio_softc *, int, uint32_t);
-void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
+uint8_t virtiox_read_device_config_1(struct virtiox_softc *, int);
+uint16_t virtiox_read_device_config_2(struct virtiox_softc *, int);
+uint32_t virtiox_read_device_config_4(struct virtiox_softc *, int);
+uint64_t virtiox_read_device_config_8(struct virtiox_softc *, int);
+void virtiox_write_device_config_1(struct virtiox_softc *, int, uint8_t);
+void virtiox_write_device_config_2(struct virtiox_softc *, int, uint16_t);
+void virtiox_write_device_config_4(struct virtiox_softc *, int, uint32_t);
+void virtiox_write_device_config_8(struct virtiox_softc *, int, uint64_t);
 
-struct virtqueue * virtio_alloc_vq(struct virtio_softc *sc,
+struct virtqueue * virtiox_alloc_vq(struct virtiox_softc *sc,
 		int index, int size, const char *name);
-void virtio_free_vq(struct virtqueue*);
-void virtio_reset(struct virtio_softc *);
-void virtio_reinit_start(struct virtio_softc *);
-void virtio_reinit_end(struct virtio_softc *);
+void virtiox_free_vq(struct virtqueue*);
+void virtiox_reset(struct virtiox_softc *);
+void virtiox_reinit_start(struct virtiox_softc *);
+void virtiox_reinit_end(struct virtiox_softc *);
 
 struct vq_entry * vq_alloc_entry(struct virtqueue *vq);
 void vq_free_entry(struct virtqueue *vq, struct vq_entry *qe);
 
-int virtio_enqueue_prep(struct virtio_softc*, struct virtqueue*, int*);
-int virtio_enqueue_reserve(struct virtio_softc*, struct virtqueue*, int, int);
-//int virtio_enqueue(struct virtio_softc*, struct virtqueue*, int,
+int virtiox_enqueue_prep(struct virtiox_softc*, struct virtqueue*, int*);
+int virtiox_enqueue_reserve(struct virtiox_softc*, struct virtqueue*, int, int);
+//int virtiox_enqueue(struct virtiox_softc*, struct virtqueue*, int,
 //		   bus_dmamap_t, bool);
-//int virtio_enqueue_p(struct virtio_softc*, struct virtqueue*, int,
+//int virtiox_enqueue_p(struct virtiox_softc*, struct virtqueue*, int,
 //		     bus_dmamap_t, bus_addr_t, bus_size_t, bool);
-int virtio_enqueue_commit(struct virtio_softc*, struct virtqueue*, int, bool);
-int virtio_enqueue_abort(struct virtio_softc*, struct virtqueue*, int);
+int virtiox_enqueue_commit(struct virtiox_softc*, struct virtqueue*, int, bool);
+int virtiox_enqueue_abort(struct virtiox_softc*, struct virtqueue*, int);
 
-int virtio_dequeue(struct virtio_softc*, struct virtqueue*, int *, int *);
-int virtio_dequeue_commit(struct virtio_softc*, struct virtqueue*, int);
+int virtiox_dequeue(struct virtiox_softc*, struct virtqueue*, int *, int *);
+int virtiox_dequeue_commit(struct virtiox_softc*, struct virtqueue*, int);
 
-int virtio_vq_intr(struct virtio_softc *);
-void virtio_stop_vq_intr(struct virtqueue *);
-void virtio_start_vq_intr(struct virtqueue *);
+int virtiox_vq_intr(struct virtiox_softc *);
+void virtiox_stop_vq_intr(struct virtqueue *);
+void virtiox_start_vq_intr(struct virtqueue *);
 
-void virtio_show_features(struct virtio_softc *sc, uint32_t features);
-//void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
+void virtiox_show_features(struct virtiox_softc *sc, uint32_t features);
+//void virtiox_ventry_stick(struct vq_entry *first, struct vq_entry *second);
 
-void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
+void virtiox_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
 	uint32_t paddr, uint16_t len, bool write);
-void virtio_push_chain(struct vq_entry *qe, boolean_t sync);
-void virtio_sync_vq(struct virtqueue *vq);
+void virtiox_push_chain(struct vq_entry *qe, boolean_t sync);
+void virtiox_sync_vq(struct virtqueue *vq);
 
-struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
-void virtio_free_chain(struct vq_entry *ve);
+struct vq_entry * virtiox_pull_chain(struct virtqueue *vq, size_t *len);
+void virtiox_free_chain(struct vq_entry *ve);
 
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */

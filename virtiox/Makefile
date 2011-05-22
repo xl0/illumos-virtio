@@ -8,12 +8,12 @@ LDFLAGS=-r
 CC=gcc
 LD=/usr/ccs/bin/ld
 
-all: virtio
+all: virtiox
 
-virtio: virtio.c virtiovar.h virtioreg.h
-	$(CC) $(CFLAGS) -c virtio.c -o virtio.o
+virtiox: virtio.c virtiovar.h virtioreg.h
+	$(CC) $(CFLAGS) -c virtiox.c -o virtiox.o
 	$(CC) $(CFLAGS) -c util.c -o util.o
-	$(LD) $(LDFLAGS) virtio.o util.o -o virtio
+	$(LD) $(LDFLAGS) virtiox.o util.o -o virtiox
 
 clean:
-	rm -f virtio virtio.o util.o
+	rm -f virtiox virtiox.o util.o

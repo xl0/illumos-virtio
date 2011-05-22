@@ -114,7 +114,7 @@
 #define VIRTIO_NET_F_HOST_ECN   (1 << 13) /* Host can handle TSO[6] w/ ECN in. */
 #define VIRTIO_NET_F_HOST_UFO   (1 << 14) /* Host can handle UFO in. */
 #define VIRTIO_NET_F_MRG_RXBUF  (1 << 15) /* Host can merge receive buffers. */
-#define VIRTIO_NET_F_STATUS     (1 << 16) /* virtio_net_config.status available */
+#define VIRTIO_NET_F_STATUS     (1 << 16) /* virtiox_net_config.status available */
 #define VIRTIO_NET_F_CTRL_VQ    (1 << 17) /* Control channel available */
 #define VIRTIO_NET_F_CTRL_RX    (1 << 18) /* Control channel RX mode support */
 #define VIRTIO_NET_F_CTRL_VLAN  (1 << 19)       /* Control channel VLAN filtering */
@@ -124,7 +124,7 @@
 #define VIRTIO_NET_S_LINK_UP	1
 
 /* Packet header structure */
-struct virtio_net_hdr {
+struct virtiox_net_hdr {
 	uint8_t		flags;
 	uint8_t		gso_type;
 	uint16_t	hdr_len;
@@ -134,8 +134,8 @@ struct virtio_net_hdr {
 };
 
 /* Use this header layout if VIRTIO_NET_F_MRG_RXBUF is negotiated. */
-struct virtio_net_hdr_mrg {
-	struct virtio_net_hdr net_hdr;
+struct virtiox_net_hdr_mrg {
+	struct virtiox_net_hdr net_hdr;
 	uint16_t num_buffers;
 };
 
@@ -149,7 +149,7 @@ struct virtio_net_hdr_mrg {
 #define VIRTIO_NET_MAX_GSO_LEN		(65536+ETHER_HDR_LEN)
 
 /* Control virtqueue */
-struct virtio_net_ctrl_cmd {
+struct virtiox_net_ctrl_cmd {
 	uint8_t	class;
 	uint8_t	command;
 } __packed;
@@ -164,52 +164,52 @@ struct virtio_net_ctrl_cmd {
 # define VIRTIO_NET_CTRL_VLAN_ADD	0
 # define VIRTIO_NET_CTRL_VLAN_DEL	1
 
-struct virtio_net_ctrl_status {
+struct virtiox_net_ctrl_status {
 	uint8_t	ack;
 } __packed;
 #define VIRTIO_NET_OK			0
 #define VIRTIO_NET_ERR			1
 
-struct virtio_net_ctrl_rx {
+struct virtiox_net_ctrl_rx {
 	uint8_t	onoff;
 } __packed;
 
-struct virtio_net_ctrl_mac_tbl {
+struct virtiox_net_ctrl_mac_tbl {
 	uint32_t nentries;
 	uint8_t macs[][ETHERADDRL];
 } __packed;
 
-struct virtio_net_ctrl_vlan {
+struct virtiox_net_ctrl_vlan {
 	uint16_t id;
 } __packed;
 
-static int vioif_attach(dev_info_t *, ddi_attach_cmd_t);
-static int vioif_detach(dev_info_t *, ddi_detach_cmd_t);
-static int vioif_quiesce(dev_info_t *);
+static int vioifx_attach(dev_info_t *, ddi_attach_cmd_t);
+static int vioifx_detach(dev_info_t *, ddi_detach_cmd_t);
+static int vioifx_quiesce(dev_info_t *);
 
 
-DDI_DEFINE_STREAM_OPS(vioif_ops,
+DDI_DEFINE_STREAM_OPS(vioifx_ops,
 	nulldev,		/* identify */
 	nulldev,		/* probe */
-	vioif_attach,	/* attach */
-	vioif_detach,	/* detach */
+	vioifx_attach,	/* attach */
+	vioifx_detach,	/* detach */
 	nodev,			/* reset */
 	NULL,			/* cb_ops */
 	D_MP,			/* bus_ops */
 	NULL,			/* power */
-	vioif_quiesce	/* quiesce */
+	vioifx_quiesce	/* quiesce */
 );
 
 
-static char vioif_ident[] = "VirtIO ethernet driver";
+static char vioifx_ident[] = "VirtIO-x ethernet driver";
 
 /* Standard Module linkage initialization for a Streams driver */
 extern struct mod_ops mod_driverops;
 
 static struct modldrv modldrv = {
 	&mod_driverops,		/* Type of module.  This one is a driver */
-	vioif_ident,	/* short description */
-	&vioif_ops		/* driver specific ops */
+	vioifx_ident,	/* short description */
+	&vioifx_ops		/* driver specific ops */
 };
 
 static struct modlinkage modlinkage = {
@@ -220,14 +220,14 @@ static struct modlinkage modlinkage = {
 	},
 };
 
-ddi_device_acc_attr_t vioif_attr = {
+ddi_device_acc_attr_t vioifx_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC, /* virtio is always narive byte order */
 	DDI_STRICTORDER_ACC
 };
 
-struct vioif_buf {
-	struct vioif_softc	*b_sc;
+struct vioifx_buf {
+	struct vioifx_softc	*b_sc;
 	caddr_t			b_buf;
 	uint32_t		b_paddr;
 	ddi_dma_handle_t	b_dmah;
@@ -235,9 +235,9 @@ struct vioif_buf {
 	frtn_t			b_frtn;
 };
 
-struct vioif_softc {
-	dev_info_t		*sc_dev; /* mirrors virtio_softc->sc_dev */
-	struct virtio_softc	sc_virtio;
+struct vioifx_softc {
+	dev_info_t		*sc_dev; /* mirrors virtiox_softc->sc_dev */
+	struct virtiox_softc	sc_virtio;
 
 	mac_handle_t sc_mac_handle;
 	mac_register_t *sc_macp;
@@ -258,12 +258,12 @@ struct vioif_softc {
 	ddi_dma_handle_t	sc_hdr_dma_handle;
 	ddi_acc_handle_t	sc_hdr_dma_acch;
 
-	/* Tx bufs - virtio_net_hdr + the packet. */
-	struct vioif_buf	**sc_rxbufs;
+	/* Tx bufs - virtiox_net_hdr + the packet. */
+	struct vioifx_buf	**sc_rxbufs;
 	int			sc_rxbuf_size;
 
-	/* Tx bufs - virtio_net_hdr + a copy of the packet. */
-	struct vioif_buf	*sc_txbufs;
+	/* Tx bufs - virtiox_net_hdr + a copy of the packet. */
+	struct vioifx_buf	*sc_txbufs;
 	kmutex_t		sc_ctrl_wait_lock;
 	kmutex_t		sc_big_lock;
 
@@ -282,7 +282,7 @@ struct vioif_softc {
 #define VIOIF_IP_ALIGN 0
 /*
 #define VIOIF_TX_SIZE (VIOIF_IP_ALIGN + \
-		sizeof (struct virtio_net_hdr) + \
+		sizeof (struct virtiox_net_hdr) + \
 		ETHERVLANMTU)
 */
 #define VIOIF_TX_SIZE 2048
@@ -291,7 +291,7 @@ struct vioif_softc {
 #define VIOIF_RX_SIZE VIOIF_TX_SIZE
 
 #define VIOIF_PACKET_OFFSET (VIOIF_IP_ALIGN + \
-		sizeof (struct virtio_net_hdr))
+		sizeof (struct virtiox_net_hdr))
 
 /* Native queue size for both rx an tx. */
 #define VIOIF_RX_QLEN 0
@@ -300,10 +300,10 @@ struct vioif_softc {
 
 
 static link_state_t
-vioif_link_state(struct vioif_softc *sc)
+vioifx_link_state(struct vioifx_softc *sc)
 {
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_STATUS) {
-		if (virtio_read_device_config_2(&sc->sc_virtio,
+		if (virtiox_read_device_config_2(&sc->sc_virtio,
 			VIRTIO_NET_CONFIG_STATUS) & VIRTIO_NET_S_LINK_UP) {
 
 			dev_err(sc->sc_dev, CE_NOTE, "Link up\n");
@@ -319,7 +319,7 @@ vioif_link_state(struct vioif_softc *sc)
 	return (LINK_STATE_UP);
 }
 
-static ddi_dma_attr_t vioif_buf_dma_attr = {
+static ddi_dma_attr_t vioifx_buf_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
 	0xFFFFFFFF,    /* high address */
@@ -334,16 +334,16 @@ static ddi_dma_attr_t vioif_buf_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
-static ddi_device_acc_attr_t vioif_bufattr = {
+static ddi_device_acc_attr_t vioifx_bufattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
 	DDI_STRICTORDER_ACC
 };
 
-static void vioif_rx_free(caddr_t free_arg)
+static void vioifx_rx_free(caddr_t free_arg)
 {
-	struct vioif_buf *buf = (void *) free_arg;
-	struct vioif_softc *sc = buf->b_sc;
+	struct vioifx_buf *buf = (void *) free_arg;
+	struct vioifx_softc *sc = buf->b_sc;
 
 	kmem_cache_free(sc->sc_rxbuf_cache, buf);
 	atomic_dec_ulong(&sc->sc_rxloan);
@@ -353,18 +353,18 @@ static void vioif_rx_free(caddr_t free_arg)
 //	ve->qe_next = NULL;
 
 //	cmn_err(CE_NOTE, "Freeing %d", ve->qe_index);
-//	virtio_free_chain(ve);
+//	virtiox_free_chain(ve);
 }
 
-static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
+static int vioifx_rx_construct(void *buffer, void *user_arg, int kmflags)
 {
-	struct vioif_softc *sc = user_arg;
-	struct vioif_buf *buf = buffer;
+	struct vioifx_softc *sc = user_arg;
+	struct vioifx_buf *buf = buffer;
 	ddi_dma_cookie_t dmac;
 	unsigned int nsegments;
 	size_t len;
 
-	if (ddi_dma_alloc_handle(sc->sc_dev, &vioif_buf_dma_attr,
+	if (ddi_dma_alloc_handle(sc->sc_dev, &vioifx_buf_dma_attr,
 		DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
 		
 		dev_err(sc->sc_dev, CE_WARN,
@@ -373,7 +373,7 @@ static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 	}
 
 	if (ddi_dma_mem_alloc(buf->b_dmah, sc->sc_rxbuf_size,
-		&vioif_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+		&vioifx_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 		NULL, &buf->b_buf, &len, &buf->b_acch)) {
 
 		dev_err(sc->sc_dev, CE_WARN,
@@ -398,7 +398,7 @@ static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 
 	buf->b_sc = sc;
 	buf->b_frtn.free_arg = (void *) buf;
-	buf->b_frtn.free_func = vioif_rx_free;
+	buf->b_frtn.free_func = vioifx_rx_free;
 //		cmn_err(CE_NOTE, "alloc buf[%d] b_buf = 0x%p b_paddr=0x%x",
 //			i, buf->b_buf, buf->b_paddr);
 //		sc->sc_vq[0].vq_entries[i].qe_desc->addr = dmac.dmac_address;
@@ -422,9 +422,9 @@ exit:
 	return (ENOMEM);
 }
 
-static void vioif_rx_descruct(void *buffer, void *user_arg)
+static void vioifx_rx_descruct(void *buffer, void *user_arg)
 {
-	struct vioif_buf *buf = buffer;
+	struct vioifx_buf *buf = buffer;
 
 	ASSERT(buf->b_paddr);
 	ASSERT(buf->b_acch);
@@ -439,12 +439,12 @@ static void vioif_rx_descruct(void *buffer, void *user_arg)
 }
 
 static void
-vioif_free_mems(struct vioif_softc *sc)
+vioifx_free_mems(struct vioifx_softc *sc)
 {
 	int i;
 
 	for (i = 0; i < sc->sc_tx_vq->vq_num; i++) {
-		struct vioif_buf *buf = &sc->sc_txbufs[i];
+		struct vioifx_buf *buf = &sc->sc_txbufs[i];
 
 		ASSERT(buf->b_paddr);
 		ASSERT(buf->b_acch);
@@ -455,19 +455,19 @@ vioif_free_mems(struct vioif_softc *sc)
 		ddi_dma_free_handle(&buf->b_dmah);
 	}
 
-	kmem_free(sc->sc_txbufs, sizeof(struct vioif_buf) * sc->sc_tx_vq->vq_num);
+	kmem_free(sc->sc_txbufs, sizeof(struct vioifx_buf) * sc->sc_tx_vq->vq_num);
 
 	for (i = 0; i < sc->sc_rx_vq->vq_num; i++) {
-		struct vioif_buf *buf = sc->sc_rxbufs[i];
+		struct vioifx_buf *buf = sc->sc_rxbufs[i];
 
 		if (buf)
 			kmem_cache_free(sc->sc_rxbuf_cache, buf);
 	}
-	kmem_free(sc->sc_rxbufs, sizeof(struct vioif_buf *) * sc->sc_rx_vq->vq_num);
+	kmem_free(sc->sc_rxbufs, sizeof(struct vioifx_buf *) * sc->sc_rx_vq->vq_num);
 }
 
 static int
-vioif_alloc_mems(struct vioif_softc *sc)
+vioifx_alloc_mems(struct vioifx_softc *sc)
 {
 	int i, txqsize, rxqsize;
 	size_t len;
@@ -480,15 +480,15 @@ vioif_alloc_mems(struct vioif_softc *sc)
 	rxqsize = sc->sc_rx_vq->vq_num;
 
 
-	sc->sc_txbufs = kmem_zalloc(sizeof(struct vioif_buf) * txqsize, KM_SLEEP);
+	sc->sc_txbufs = kmem_zalloc(sizeof(struct vioifx_buf) * txqsize, KM_SLEEP);
 	if (!sc->sc_txbufs) {
 		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate the tx buffers array");
 		goto exit;
 	}
 
-	/* We don't allocate the rx vioif_buffs, just the pointers. There might be more
-	 vioif_buffs loaned upstream */
-	sc->sc_rxbufs = kmem_zalloc(sizeof(struct vioif_buf *) * rxqsize, KM_SLEEP);
+	/* We don't allocate the rx vioifx_buffs, just the pointers. There might be more
+	 vioifx_buffs loaned upstream */
+	sc->sc_rxbufs = kmem_zalloc(sizeof(struct vioifx_buf *) * rxqsize, KM_SLEEP);
 	if (!sc->sc_rxbufs) {
 		dev_err(sc->sc_dev, CE_WARN,
 			"Failed to allocate the rx buffers pointer array");
@@ -496,9 +496,9 @@ vioif_alloc_mems(struct vioif_softc *sc)
 	}
 
 	for (i = 0 ; i < txqsize; i++) {
-		struct vioif_buf *buf = &sc->sc_txbufs[i];
+		struct vioifx_buf *buf = &sc->sc_txbufs[i];
 
-		if (ddi_dma_alloc_handle(sc->sc_dev, &vioif_buf_dma_attr,
+		if (ddi_dma_alloc_handle(sc->sc_dev, &vioifx_buf_dma_attr,
 			DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
 			
 			dev_err(sc->sc_dev, CE_WARN,
@@ -507,7 +507,7 @@ vioif_alloc_mems(struct vioif_softc *sc)
 		}
  
 		if (ddi_dma_mem_alloc(buf->b_dmah, VIOIF_TX_SIZE,
-			&vioif_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
+			&vioifx_bufattr, DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 			NULL, &buf->b_buf, &len, &buf->b_acch)) {
 
 
@@ -536,7 +536,7 @@ vioif_alloc_mems(struct vioif_softc *sc)
 
 exit_tx:
 	for (i = 0; i < txqsize; i++) {
-		struct vioif_buf *buf = &sc->sc_txbufs[i];
+		struct vioifx_buf *buf = &sc->sc_txbufs[i];
 
 		if (buf->b_paddr) {
 			ddi_dma_unbind_handle(buf->b_dmah);
@@ -552,46 +552,46 @@ exit_tx:
 	}
 
 exit_rxalloc:
-	kmem_free(sc->sc_txbufs, sizeof(struct vioif_buf) * txqsize);
+	kmem_free(sc->sc_txbufs, sizeof(struct vioifx_buf) * txqsize);
 exit:
 	return (ENOMEM);
 }
 
 int
-vioif_quiesce(dev_info_t *dip)
-{
-	TRACE;
-	return DDI_FAILURE;
-}
-
-int
-vioif_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
+vioifx_quiesce(dev_info_t *dip)
 {
 	TRACE;
 	return DDI_SUCCESS;
 }
 
 int
-vioif_promisc(void *arg, boolean_t on)
+vioifx_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
 {
 	TRACE;
 	return DDI_SUCCESS;
 }
 
 int
-vioif_unicst(void *arg, const uint8_t *macaddr)
+vioifx_promisc(void *arg, boolean_t on)
+{
+	TRACE;
+	return DDI_SUCCESS;
+}
+
+int
+vioifx_unicst(void *arg, const uint8_t *macaddr)
 {
 	TRACE;
 	return DDI_FAILURE;
 }
 
 
-static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
+static int vioifx_add_rx_single(struct vioifx_softc *sc, int kmflag)
 {
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
 
-	struct vioif_buf *buf;
+	struct vioifx_buf *buf;
 
 	ve_hdr = vq_alloc_entry(sc->sc_rx_vq);
 	if (!ve_hdr) {
@@ -616,12 +616,12 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 		goto exit_buf;
 	}
 
-	virtio_ve_set(ve_hdr, buf->b_dmah, buf->b_paddr,
-		sizeof(struct virtio_net_hdr), B_FALSE);
+	virtiox_ve_set(ve_hdr, buf->b_dmah, buf->b_paddr,
+		sizeof(struct virtiox_net_hdr), B_FALSE);
 
-	virtio_ve_set(ve, buf->b_dmah,
-		buf->b_paddr + sizeof(struct virtio_net_hdr),
-		sc->sc_rxbuf_size - sizeof(struct virtio_net_hdr),
+	virtiox_ve_set(ve, buf->b_dmah,
+		buf->b_paddr + sizeof(struct virtiox_net_hdr),
+		sc->sc_rxbuf_size - sizeof(struct virtiox_net_hdr),
 		B_FALSE);
 
 	ve_hdr->qe_next = ve;
@@ -631,7 +631,7 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
 	//	TRACE;
-	virtio_push_chain(ve_hdr, B_FALSE);
+	virtiox_push_chain(ve_hdr, B_FALSE);
 
 	return (0);
 
@@ -644,10 +644,10 @@ exit_hdr:
 	return (-1);
 }
 
-static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
+static int vioifx_add_rx_merge(struct vioifx_softc *sc, int kmflag)
 {
 	struct vq_entry *ve;
-	struct vioif_buf *buf;
+	struct vioifx_buf *buf;
 
 	ve = vq_alloc_entry(sc->sc_rx_vq);
 	if (!ve) {
@@ -669,29 +669,29 @@ static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
 		return -1;
 	}
 
-	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr + VIOIF_IP_ALIGN,
+	virtiox_ve_set(ve, buf->b_dmah, buf->b_paddr + VIOIF_IP_ALIGN,
 		sc->sc_rxbuf_size - VIOIF_IP_ALIGN, B_FALSE);
 
-	virtio_push_chain(ve, B_FALSE);
+	virtiox_push_chain(ve, B_FALSE);
 
 	return 0;
 }
 
-static int vioif_populate_rx(struct vioif_softc *sc, int kmflag)
+static int vioifx_populate_rx(struct vioifx_softc *sc, int kmflag)
 {
 	int i = 0;
 	int ret = 0;
 
 	if (sc->sc_merge) {
 		for (;;) {
-			ret = vioif_add_rx_merge(sc, kmflag);
+			ret = vioifx_add_rx_merge(sc, kmflag);
 			if (ret)
 				break;
 			i++;
 		}
 	} else {
 		for (;;) {
-			ret = vioif_add_rx_single(sc, kmflag);
+			ret = vioifx_add_rx_single(sc, kmflag);
 			if (ret)
 				break;
 			i++;
@@ -699,25 +699,25 @@ static int vioif_populate_rx(struct vioif_softc *sc, int kmflag)
 	}
 
 	if (i)
-		virtio_sync_vq(sc->sc_rx_vq);
+		virtiox_sync_vq(sc->sc_rx_vq);
 
 	return i;
 }
 
-static int vioif_rx_single(struct vioif_softc *sc)
+static int vioifx_rx_single(struct vioifx_softc *sc)
 {
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
 
-	struct vioif_buf *buf;
+	struct vioifx_buf *buf;
 
-//	struct virtio_net_hdr *hdr;
+//	struct virtiox_net_hdr *hdr;
 	mblk_t *mp;
 	size_t len;
 
 	int i = 0;
 
-	while ((ve_hdr = virtio_pull_chain(sc->sc_rx_vq, &len))) {
+	while ((ve_hdr = virtiox_pull_chain(sc->sc_rx_vq, &len))) {
 //		TRACE;
 
 		ASSERT(ve_hdr->qe_next);
@@ -725,22 +725,22 @@ static int vioif_rx_single(struct vioif_softc *sc)
 
 //		cmn_err(CE_NOTE, "l=%ld", len);
 
-		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+		if (len < sizeof(struct virtiox_net_hdr_mrg)) {
 			cmn_err(CE_WARN, "Rx: Chain too small: %ld",
-				len - sizeof(struct virtio_net_hdr_mrg));
-			virtio_free_chain(ve);
+				len - sizeof(struct virtiox_net_hdr_mrg));
+			virtiox_free_chain(ve);
 			continue;
 		}
 
 		buf = sc->sc_rxbufs[ve_hdr->qe_index];
 		ddi_dma_sync(buf->b_dmah, 0, len , DDI_DMA_SYNC_FORCPU);
 
-		len -= sizeof(struct virtio_net_hdr);
+		len -= sizeof(struct virtiox_net_hdr);
 
 		mp = allocb(len, 0);
 		if (!mp) {
 			cmn_err(CE_WARN, "Failed to allocale mblock!");
-			virtio_free_chain(ve_hdr);
+			virtiox_free_chain(ve_hdr);
 			break;
 		}
 
@@ -752,17 +752,17 @@ static int vioif_rx_single(struct vioif_softc *sc)
 //			ve->qe_index, buf->b_buf, buf->b_paddr);
 
 
-//		hex_dump("hdr", buf_hdr->b_buf, sizeof(struct virtio_net_hdr));
+//		hex_dump("hdr", buf_hdr->b_buf, sizeof(struct virtiox_net_hdr));
 //		hex_dump("rx", buf->b_buf, len);
 
-		bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr),
+		bcopy((char *)buf->b_buf + sizeof(struct virtiox_net_hdr),
 				mp->b_rptr, len);
 //		cmn_err(CE_NOTE, "mbuf: rptr: %p, wptr: %p",
 //				mp->b_rptr, mp->b_wptr);
 
 		mp->b_wptr = mp->b_rptr + len;
 
-		virtio_free_chain(ve_hdr);
+		virtiox_free_chain(ve_hdr);
 //		kmem_cache_free(sc->sc_rxbuf_cache, buf);
 
 		mac_rx(sc->sc_mac_handle, NULL, mp);
@@ -774,23 +774,23 @@ static int vioif_rx_single(struct vioif_softc *sc)
 	return i;
 }
 
-static int vioif_rx_merged(struct vioif_softc *sc)
+static int vioifx_rx_merged(struct vioifx_softc *sc)
 {
 	struct vq_entry *ve;
 
-	struct vioif_buf *buf;
+	struct vioifx_buf *buf;
 
-//	struct virtio_net_hdr *hdr;
+//	struct virtiox_net_hdr *hdr;
 	mblk_t *mp;
 	size_t len;
 
 	int i = 0;
 
-	while ((ve = virtio_pull_chain(sc->sc_rx_vq, &len))) {
+	while ((ve = virtiox_pull_chain(sc->sc_rx_vq, &len))) {
 
 		if (ve->qe_next) {
 			cmn_err(CE_NOTE, "Merged buffer len %ld", len);
-			virtio_free_chain(ve);
+			virtiox_free_chain(ve);
 			break;
 		}
 
@@ -798,17 +798,17 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 		ASSERT(buf);
 
 
-		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+		if (len < sizeof(struct virtiox_net_hdr_mrg)) {
 			cmn_err(CE_WARN, "Rx: Cnain too small: %ld",
-				len - sizeof(struct virtio_net_hdr_mrg));
-			virtio_free_chain(ve);
+				len - sizeof(struct virtiox_net_hdr_mrg));
+			virtiox_free_chain(ve);
 			continue;
 		}
 
 //		cmn_err(CE_NOTE, "l=%ld", len);
 
 		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
-		len -= sizeof(struct virtio_net_hdr_mrg);
+		len -= sizeof(struct virtiox_net_hdr_mrg);
 
 		/* We copy the small packets and reuse the buffers. For
 		 * bigger ones, we loan the buffers upstream. */
@@ -816,11 +816,11 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 			mp = allocb(len, 0);
 			if (!mp) {
 				cmn_err(CE_WARN, "Failed to allocale mblock!");
-				virtio_free_chain(ve);
+				virtiox_free_chain(ve);
 				break;
 			}
 
-			bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr_mrg),
+			bcopy((char *)buf->b_buf + sizeof(struct virtiox_net_hdr_mrg),
 					mp->b_rptr, len);
 
 			mp->b_wptr = mp->b_rptr + len;
@@ -832,12 +832,12 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 	//		cmn_err(CE_NOTE, "Upstreaming %d", ve->qe_index);
 
 			mp = desballoc((char *)buf->b_buf +
-					sizeof(struct virtio_net_hdr_mrg) +
+					sizeof(struct virtiox_net_hdr_mrg) +
 					VIOIF_IP_ALIGN,
 					len, 0, &buf->b_frtn);
 			if (!mp) {
 				cmn_err(CE_WARN, "Failed to allocale mblock!");
-				virtio_free_chain(ve);
+				virtiox_free_chain(ve);
 				break;
 			}
 			mp->b_wptr = mp->b_rptr + len;
@@ -848,7 +848,7 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 			sc->sc_rxbufs[ve->qe_index] = NULL;
 		}	
 
-		virtio_free_chain(ve);
+		virtiox_free_chain(ve);
 		mac_rx(sc->sc_mac_handle, NULL, mp);
 		i++;
 	}
@@ -858,16 +858,16 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 
 
 
-static int vioif_process_rx(struct vioif_softc *sc)
+static int vioifx_process_rx(struct vioifx_softc *sc)
 {
 	if (sc->sc_merge) {
-		return vioif_rx_merged(sc);	
+		return vioifx_rx_merged(sc);	
 	}
 
-	return vioif_rx_single(sc);
+	return vioifx_rx_single(sc);
 }
 
-static void vioif_reclaim_used_tx(struct vioif_softc *sc)
+static void vioifx_reclaim_used_tx(struct vioifx_softc *sc)
 {
 	struct vq_entry *ve;
 
@@ -878,9 +878,9 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 //	TRACE;
 
 //	mutex_enter(&sc->sc_tx_lock);
-	while ((ve = virtio_pull_chain(sc->sc_tx_vq, &len))) {
+	while ((ve = virtiox_pull_chain(sc->sc_tx_vq, &len))) {
 //		TRACE;
-		virtio_free_chain(ve);
+		virtiox_free_chain(ve);
 		i++;
 	}
 	if (sc->sc_tx_stopped && i) {
@@ -894,10 +894,10 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
  * Interrupt service routine.
  */
 unsigned int
-vioif_intr(caddr_t arg)
+vioifx_intr(caddr_t arg)
 {
 	uint8_t isr_status;
-	struct vioif_softc *sc = (void *)arg;
+	struct vioifx_softc *sc = (void *)arg;
 	int i;
 
 	isr_status = ddi_get8(sc->sc_virtio.sc_ioh,
@@ -912,13 +912,13 @@ vioif_intr(caddr_t arg)
 
 //	mutex_enter(&sc->sc_big_lock);
 
-	vioif_reclaim_used_tx(sc);
-	i = vioif_process_rx(sc);
+	vioifx_reclaim_used_tx(sc);
+	i = vioifx_process_rx(sc);
 //	if (i) {
 //		cmn_err(CE_NOTE, "Pushed %d blocks to mac", i);
 //	}
 
-	i = vioif_populate_rx(sc, KM_NOSLEEP);
+	i = vioifx_populate_rx(sc, KM_NOSLEEP);
 //	if (i) {
 //		cmn_err(CE_NOTE, "Pushed %d rx descriptors", i);
 //	}
@@ -927,19 +927,19 @@ vioif_intr(caddr_t arg)
 	return DDI_INTR_CLAIMED;
 }
 static bool
-vioif_send(struct vioif_softc *sc, mblk_t *mb)
+vioifx_send(struct vioifx_softc *sc, mblk_t *mb)
 {
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
 
 
-	struct vioif_buf *buf;
-	struct vioif_buf *buf_hdr;
+	struct vioifx_buf *buf;
+	struct vioifx_buf *buf_hdr;
 	size_t msg_size = 0;
 	int hdr_len;
 
-	hdr_len = sc->sc_merge ? sizeof(struct virtio_net_hdr_mrg) :
-		sizeof(struct virtio_net_hdr);
+	hdr_len = sc->sc_merge ? sizeof(struct virtiox_net_hdr_mrg) :
+		sizeof(struct virtiox_net_hdr);
 
 	msg_size = msgsize(mb);
 	if (msg_size > ETHERVLANMTU) {
@@ -972,29 +972,29 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 	ddi_dma_sync(buf_hdr->b_dmah, 0, hdr_len,
 		DDI_DMA_SYNC_FORDEV);
 
-	virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
+	virtiox_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
 		hdr_len, B_TRUE);
 
 	mcopymsg(mb, buf->b_buf);
 	ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
-	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr, msg_size, B_TRUE);
+	virtiox_ve_set(ve, buf->b_dmah, buf->b_paddr, msg_size, B_TRUE);
 
 
-//	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
+//	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtiox_net_hdr),
 //		DDI_DMA_SYNC_FORDEV);
 
 	ve_hdr->qe_next = ve;
 
 //	TRACE;
-	virtio_push_chain(ve_hdr, B_TRUE);
+	virtiox_push_chain(ve_hdr, B_TRUE);
 
 	return (B_TRUE);
 }
 
 mblk_t *
-vioif_tx(void *arg, mblk_t *mp)
+vioifx_tx(void *arg, mblk_t *mp)
 {
-	struct vioif_softc *sc = arg;
+	struct vioifx_softc *sc = arg;
 	mblk_t	*nmp;
 
 //	TRACE;
@@ -1004,7 +1004,7 @@ vioif_tx(void *arg, mblk_t *mp)
 		nmp = mp->b_next;
 		mp->b_next = NULL;
 
-		if (!vioif_send(sc, mp)) {
+		if (!vioifx_send(sc, mp)) {
 //			cmn_err(CE_NOTE, "##");
 			sc->sc_tx_stopped = 1;
 			mp->b_next = nmp;
@@ -1020,31 +1020,31 @@ vioif_tx(void *arg, mblk_t *mp)
 }
 
 int
-vioif_start(void *arg)
+vioifx_start(void *arg)
 {
-	struct vioif_softc *sc = arg;
+	struct vioifx_softc *sc = arg;
 
 	TRACE;
 
 	mac_link_update(sc->sc_mac_handle,
-		vioif_link_state(sc));
+		vioifx_link_state(sc));
 
-	virtio_start_vq_intr(sc->sc_rx_vq);
+	virtiox_start_vq_intr(sc->sc_rx_vq);
 
 	return (DDI_SUCCESS);
 }
 
 void
-vioif_stop(void *arg)
+vioifx_stop(void *arg)
 {
-	struct vioif_softc *sc = arg;
+	struct vioifx_softc *sc = arg;
 	TRACE;
-	virtio_stop_vq_intr(sc->sc_rx_vq);
+	virtiox_stop_vq_intr(sc->sc_rx_vq);
 }
 
 
 static int
-vioif_stat(void *arg, uint_t stat, uint64_t *val)
+vioifx_stat(void *arg, uint_t stat, uint64_t *val)
 {
 //	TRACE;
 	cmn_err(CE_NOTE, "stat = %x\n", stat);
@@ -1070,13 +1070,13 @@ vioif_stat(void *arg, uint_t stat, uint64_t *val)
 
 static mac_callbacks_t afe_m_callbacks = {
 	/*MC_IOCTL | MC_SETPROP | MC_GETPROP | MC_PROPINFO*/ 0,
-	vioif_stat,
-	vioif_start,
-	vioif_stop,
-	vioif_promisc,
-	vioif_multicst,
-	vioif_unicst,
-	vioif_tx,
+	vioifx_stat,
+	vioifx_start,
+	vioifx_stop,
+	vioifx_promisc,
+	vioifx_multicst,
+	vioifx_unicst,
+	vioifx_tx,
 	NULL,
 	/*afe_m_ioctl*/ NULL,	/* mc_ioctl */
 	NULL,		/* mc_getcapab */
@@ -1088,7 +1088,7 @@ static mac_callbacks_t afe_m_callbacks = {
 };
 
 static int
-vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
+vioifx_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 {
 	uint16_t vendor, device, revision, subdevice, subvendor;
 
@@ -1146,9 +1146,9 @@ vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 }
 
 static void
-vioif_show_features(struct vioif_softc *sc, uint32_t features)
+vioifx_show_features(struct vioifx_softc *sc, uint32_t features)
 {
-	virtio_show_features(&sc->sc_virtio, features);
+	virtiox_show_features(&sc->sc_virtio, features);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Virtio Net features:");
 
@@ -1195,12 +1195,12 @@ vioif_show_features(struct vioif_softc *sc, uint32_t features)
  * choose which ones we wish to use.
  */
 static int
-vioif_dev_features(struct vioif_softc *sc)
+vioifx_dev_features(struct vioifx_softc *sc)
 {
 	uint32_t host_features;
 
 
-	host_features = virtio_negotiate_features(&sc->sc_virtio,
+	host_features = virtiox_negotiate_features(&sc->sc_virtio,
 			VIRTIO_NET_F_CSUM |
 			VIRTIO_NET_F_MAC |
 			VIRTIO_NET_F_STATUS |
@@ -1212,10 +1212,10 @@ vioif_dev_features(struct vioif_softc *sc)
 			VRING_DESC_F_INDIRECT*/);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Host features:");
-	vioif_show_features(sc, host_features);
+	vioifx_show_features(sc, host_features);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
-	vioif_show_features(sc, sc->sc_virtio.sc_features);
+	vioifx_show_features(sc, sc->sc_virtio.sc_features);
 
 
 	sc->sc_rxbuf_size = VIOIF_RX_SIZE;
@@ -1230,24 +1230,24 @@ vioif_dev_features(struct vioif_softc *sc)
 }
 
 static void
-vioif_set_mac(struct vioif_softc *sc)
+vioifx_set_mac(struct vioifx_softc *sc)
 {
 	int i;
 
 	for (i = 0; i < ETHERADDRL; i++) {
-		virtio_write_device_config_1(&sc->sc_virtio,
+		virtiox_write_device_config_1(&sc->sc_virtio,
 			VIRTIO_NET_CONFIG_MAC + i, sc->sc_mac[i]);
 	}
 }
 
 /* Get the mac address out of the hardware, or make up one. */
 static void
-vioif_get_mac(struct vioif_softc *sc)
+vioifx_get_mac(struct vioifx_softc *sc)
 {
 	int i;
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MAC) {
 		for (i = 0; i < ETHERADDRL; i++) {
-			sc->sc_mac[i] = virtio_read_device_config_1(
+			sc->sc_mac[i] = virtiox_read_device_config_1(
 				&sc->sc_virtio,
 				VIRTIO_NET_CONFIG_MAC + i);
 		}
@@ -1261,7 +1261,7 @@ vioif_get_mac(struct vioif_softc *sc)
 		/* Set the "locally administered" bit */
 		sc->sc_mac[1] |= 2;
 
-		vioif_set_mac(sc);
+		vioifx_set_mac(sc);
 
 		dev_err(sc->sc_dev, CE_NOTE, "Generated a random Got MAC address: %s",
 			ether_sprintf((struct ether_addr *) sc->sc_mac));
@@ -1270,19 +1270,19 @@ vioif_get_mac(struct vioif_softc *sc)
 }
 
 /*
- * vioif_attach
+ * vioifx_attach
  * @devinfo: pointer to dev_info_t structure
  * @cmd: attach command to process
  */
 static int
-vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
+vioifx_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
 	int ret, instance, intr_types;
-	struct vioif_softc *sc;
-	struct virtio_softc *vsc;
+	struct vioifx_softc *sc;
+	struct virtiox_softc *vsc;
 	mac_register_t *macp;
 	ddi_acc_handle_t pci_conf;
-	struct vioif_buf *buf;
+	struct vioifx_buf *buf;
 	TRACE;
 
 
@@ -1304,7 +1304,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit;
 	}
 
-	sc = kmem_zalloc(sizeof (struct vioif_softc), KM_SLEEP);
+	sc = kmem_zalloc(sizeof (struct vioifx_softc), KM_SLEEP);
 	ddi_set_driver_private(devinfo, sc);
 
 	vsc = &sc->sc_virtio;
@@ -1319,7 +1319,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	}
 
-	ret = vioif_match(devinfo, pci_conf);
+	ret = vioifx_match(devinfo, pci_conf);
 	if (ret)
 		goto exit_match;
 
@@ -1344,7 +1344,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	 * we don't use a persistent stat.  We do it this way to avoid having
 	 * to test for it at run time on the hot path.
 	 */
-	sc->sc_intrstat = kstat_create("vioif", instance, "intr", "controller",
+	sc->sc_intrstat = kstat_create("vioifx", instance, "intr", "controller",
 		KSTAT_TYPE_INTR, 1, 0);
 	if (sc->sc_intrstat == NULL) {
 		dev_err(devinfo, CE_WARN, "kstat_create failed");
@@ -1355,7 +1355,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* map BAR0 */
 	ret = ddi_regs_map_setup(devinfo, 1, (caddr_t *)&sc->sc_virtio.sc_io_addr,
-		0, 0, &vioif_attr, &sc->sc_virtio.sc_ioh);
+		0, 0, &vioifx_attr, &sc->sc_virtio.sc_ioh);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "unable to map bar0: [%d]", ret);
 		goto exit_map;
@@ -1363,60 +1363,60 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	sc->sc_virtio.sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
 
-	virtio_device_reset(&sc->sc_virtio);
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
+	virtiox_device_reset(&sc->sc_virtio);
+	virtiox_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
+	virtiox_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
 
 
-	ret = vioif_dev_features(sc);
+	ret = vioifx_dev_features(sc);
 	if (ret)
 		goto exit_features;
 
-	vioif_get_mac(sc);
+	vioifx_get_mac(sc);
 
-	sc->sc_rxbuf_cache = kmem_cache_create("vioif", sizeof (struct vioif_buf),
-		0, vioif_rx_construct, vioif_rx_descruct,
+	sc->sc_rxbuf_cache = kmem_cache_create("vioifx", sizeof (struct vioifx_buf),
+		0, vioifx_rx_construct, vioifx_rx_descruct,
 		NULL, sc, NULL, KM_SLEEP);
 	if (!sc->sc_rxbuf_cache) {
 		cmn_err(CE_NOTE, "Can't allocate the buffer cache");
 		goto exit_cache;
 	}
 
-	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0, VIOIF_RX_QLEN, "rx");
+	sc->sc_rx_vq = virtiox_alloc_vq(&sc->sc_virtio, 0, VIOIF_RX_QLEN, "rx");
 	if (!sc->sc_rx_vq) {
 		goto exit_alloc1;
 	}
 
 
 	sc->sc_nvqs = 1;
-	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1, VIOIF_TX_QLEN, "tx");
+	sc->sc_tx_vq = virtiox_alloc_vq(&sc->sc_virtio, 1, VIOIF_TX_QLEN, "tx");
 	if (!sc->sc_rx_vq) {
 		goto exit_alloc2;
 	}
 	sc->sc_nvqs = 2;
 
-	virtio_stop_vq_intr(sc->sc_rx_vq);
-	virtio_stop_vq_intr(sc->sc_tx_vq);
-//	sc->sc_virtio_vq[1].vq_done = vioif_tx_vq_done;
-//	virtio_start_vq_intr(&sc->sc_vq[0]);
-//	virtio_stop_vq_intr(&sc->sc_vq[1]); /* not urgent; do it later */
+	virtiox_stop_vq_intr(sc->sc_rx_vq);
+	virtiox_stop_vq_intr(sc->sc_tx_vq);
+//	sc->sc_virtiox_vq[1].vq_done = vioifx_tx_vq_done;
+//	virtiox_start_vq_intr(&sc->sc_vq[0]);
+//	virtiox_stop_vq_intr(&sc->sc_vq[1]); /* not urgent; do it later */
 /*
 	if ((features & VIRTIO_NET_F_CTRL_VQ)
 	    && (features & VIRTIO_NET_F_CTRL_RX)) {
-		if (virtio_alloc_vq(vsc, &sc->sc_vq[2], 2,
+		if (virtiox_alloc_vq(vsc, &sc->sc_vq[2], 2,
 				    NBPG, 1, "control") == 0) {
-			sc->sc_virtio_vq[2].vq_done = vioif_ctrl_vq_done;
-			cv_init(&sc->sc_virtio_ctrl_wait, "ctrl_vq");
-			mutex_init(&sc->sc_virtio_ctrl_wait_lock,
+			sc->sc_virtiox_vq[2].vq_done = vioifx_ctrl_vq_done;
+			cv_init(&sc->sc_virtiox_ctrl_wait, "ctrl_vq");
+			mutex_init(&sc->sc_virtiox_ctrl_wait_lock,
 				   MUTEX_DEFAULT, IPL_NET);
-			sc->sc_virtio_ctrl_inuse = FREE;
-			virtio_start_vq_intr(vsc, &sc->sc_virtio_vq[2]);
-			vsc->sc_virtio_nvqs = 3;
+			sc->sc_virtiox_ctrl_inuse = FREE;
+			virtiox_start_vq_intr(vsc, &sc->sc_virtiox_vq[2]);
+			vsc->sc_virtiox_nvqs = 3;
 		}
 	}
 */
 
-	if (vioif_alloc_mems(sc))
+	if (vioifx_alloc_mems(sc))
 		goto exit_alloc_mems;
 
 	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
@@ -1432,15 +1432,15 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	macp->m_min_sdu = 0;
 	macp->m_max_sdu = ETHERMTU;
 	macp->m_margin = VLAN_TAGSZ;
-	mutex_init(&sc->sc_big_lock, "virtio",
+	mutex_init(&sc->sc_big_lock, "virtiox",
 			MUTEX_DRIVER, vsc->sc_icookie);
 
 	sc->sc_rxloan = 0;
 	sc->sc_rxcopy_thresh = 300;
 
 	sc->sc_macp = macp;
-	vioif_populate_rx(sc, KM_SLEEP);
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
+	vioifx_populate_rx(sc, KM_SLEEP);
+	virtiox_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 	dev_err(sc->sc_dev, CE_NOTE, "Registering the mac!");
 	ret = mac_register(macp, &sc->sc_mac_handle);
@@ -1453,7 +1453,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	 * Establish interrupt handler.
 	 */
 	if (ddi_add_intr(devinfo, 0, NULL, NULL,
-			vioif_intr, (caddr_t)sc)) {
+			vioifx_intr, (caddr_t)sc)) {
 		dev_err(devinfo, CE_WARN, "unable to add interrupt");
 		goto exit_int;
 	}
@@ -1469,16 +1469,16 @@ exit_int:
 exit_register:
 	mac_free(macp);
 exit_macalloc:
-	vioif_free_mems(sc);
+	vioifx_free_mems(sc);
 exit_alloc_mems:
-	virtio_free_vq(sc->sc_tx_vq);
+	virtiox_free_vq(sc->sc_tx_vq);
 exit_alloc2:
-	virtio_free_vq(sc->sc_rx_vq);
+	virtiox_free_vq(sc->sc_rx_vq);
 exit_alloc1:
 	kmem_cache_destroy(sc->sc_rxbuf_cache);
 exit_cache:
 exit_features:
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
+	virtiox_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 exit_intrstat:
 exit_map:
@@ -1487,20 +1487,20 @@ exit_inttype:
 exit_cookie:
 exit_match:
 exit_pci_conf:
-	kmem_free(sc, sizeof (struct vioif_softc));
+	kmem_free(sc, sizeof (struct vioifx_softc));
 exit:
 	return (ret);
 }
 
 /*
- * vioif_detach
+ * vioifx_detach
  * @devinfo: pointer to dev_info_t structure
  * @cmd: attach command to process
  */
 static int
-vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
+vioifx_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 {
-	struct vioif_softc *sc = ddi_get_driver_private(devinfo);
+	struct vioifx_softc *sc = ddi_get_driver_private(devinfo);
 
 	switch (cmd) {
 	case DDI_DETACH:
@@ -1529,16 +1529,16 @@ vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 
 	mac_free(sc->sc_macp);
 
-	virtio_device_reset(&sc->sc_virtio);
-	vioif_free_mems(sc);
-	virtio_free_vq(sc->sc_rx_vq);
-	virtio_free_vq(sc->sc_tx_vq);
+	virtiox_device_reset(&sc->sc_virtio);
+	vioifx_free_mems(sc);
+	virtiox_free_vq(sc->sc_rx_vq);
+	virtiox_free_vq(sc->sc_tx_vq);
 
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 
 	kmem_cache_destroy(sc->sc_rxbuf_cache);
 	kstat_delete(sc->sc_intrstat);
-	kmem_free(sc, sizeof (struct vioif_softc));
+	kmem_free(sc, sizeof (struct vioifx_softc));
 
 	return (DDI_SUCCESS);
 }
@@ -1549,10 +1549,10 @@ _init(void)
 	int ret = 0;
 	TRACE;
 
-	mac_init_ops(&vioif_ops, "vioif");
+	mac_init_ops(&vioifx_ops, "vioifx");
 	if ((ret = mod_install(&modlinkage)) != DDI_SUCCESS) {
 		TRACE;
-		mac_fini_ops(&vioif_ops);
+		mac_fini_ops(&vioifx_ops);
 		cmn_err(CE_WARN, "unable to install the driver");
 		return (ret);
 	}
@@ -1568,7 +1568,7 @@ _fini(void)
 
 	ret = mod_remove(&modlinkage);
 	if (ret == DDI_SUCCESS) {
-		mac_fini_ops(&vioif_ops);
+		mac_fini_ops(&vioifx_ops);
 	}
 
 	return (ret);
