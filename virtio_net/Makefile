@@ -2,7 +2,7 @@
 
 #CFLAGS=-D_KERNEL -m64 -xarch=sse2a -xmodel=kernel -I ../virtio -g
 CFLAGS= -D_KERNEL -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -nodefaultlibs -I../virtio -Wall -g
-LDFLAGS=-r -dy -N misc/mac -N drv/virtio
+LDFLAGS=-r -dy -N misc/mac -N misc/virtio
 
 #CC=/opt/SUNWspro/bin/cc
 CC=gcc

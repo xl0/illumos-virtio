@@ -99,8 +99,11 @@
 #define VIRTIO_CONFIG_ISR_STATUS	19 /* 8bit */
 #define  VIRTIO_CONFIG_ISR_CONFIG_CHANGE	2
 #define VIRTIO_CONFIG_CONFIG_VECTOR	20 /* 16bit, optional */
+#define VIRTIO_CONFIG_QUEUE_VECTOR	22
 #define VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI	20
-#define VIRTIO_CONFIG_DEVICE_CONFIG_MSI		22
+#define VIRTIO_CONFIG_DEVICE_CONFIG_MSI		24
+
+#define VIRTIO_MSI_NO_VECTOR 0xffff
 
 /* Virtqueue */
 /* This marks a buffer as continuing via the next field. */

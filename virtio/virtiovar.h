@@ -72,7 +72,7 @@
 
 #define TRACE { \
 	cmn_err (CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
-	/* delay(drv_usectohz(1000000)); */\
+	/*delay(drv_usectohz(1000000));  */\
 }
 
 #define FAST_TRACE { \
@@ -129,7 +129,7 @@ struct virtqueue {
 struct virtio_softc {
 	dev_info_t		*sc_dev;
 
-	ddi_iblock_cookie_t     sc_icookie;
+	int			sc_intr_prio;
 
 	ddi_acc_handle_t	sc_ioh;
 	uint8_t			*sc_io_addr;
@@ -138,7 +138,18 @@ struct virtio_softc {
 	uint32_t		sc_features;
 
 	int			sc_nvqs; /* set by the user */ 
-	struct virtqueue	*sc_vqs; /* set by the user */
+
+	ddi_intr_handle_t	*sc_intr_htable;
+	int			sc_intr_num;
+	int			sc_intr_cap;
+};
+
+//typedef int (*virtio_int_func) (struct virtio_softc *sc, void *priv);
+
+struct virtio_int_handler {
+	ddi_intr_handler_t *vh_func;
+	struct virtqueue *vh_vq;
+	void *vh_priv;
 };
 
 /* The standard layout for the ring is a continuous chunk of memory which
@@ -166,6 +177,8 @@ struct virtio_softc {
 
 /* public interface */
 uint32_t virtio_negotiate_features(struct virtio_softc*, uint32_t);
+void virtio_show_features(struct virtio_softc *sc, uint32_t features);
+boolean_t virtio_has_feature(struct virtio_softc *sc, uint32_t feature);
 void virtio_set_status(struct virtio_softc *sc, int );
 #define virtio_device_reset(sc)	virtio_set_status((sc), 0)
 
@@ -204,7 +217,6 @@ int virtio_vq_intr(struct virtio_softc *);
 void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);
 
-void virtio_show_features(struct virtio_softc *sc, uint32_t features);
 //void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
 
 void virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
@@ -214,5 +226,9 @@ void virtio_sync_vq(struct virtqueue *vq);
 
 struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct vq_entry *ve);
+int virtio_register_ints(struct virtio_softc *sc,
+		struct virtio_int_handler *config_handler,
+		struct virtio_int_handler vq_handlers[]);
+void virtio_release_ints(struct virtio_softc *sc);
 
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */

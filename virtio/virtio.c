@@ -103,6 +103,13 @@ virtio_show_features(struct virtio_softc *sc, uint32_t features)
 		dev_err(sc->sc_dev, CE_NOTE, "INDIRECT_DESC");
 }
 
+boolean_t
+virtio_has_feature(struct virtio_softc *sc, uint32_t feature)
+{
+	return (sc->sc_features & feature);
+}
+
+
 /*
  * Device configuration registers.
  */
@@ -200,6 +207,7 @@ static ddi_dma_attr_t virtio_vq_dma_attr = {
 	0,             /* attr flag: set to 0 */
 };
 
+#if 0
 static ddi_dma_attr_t virtio_entry_dma_attr = {
 	DMA_ATTR_V0,   /* Version number */
 	0,	       /* low address */
@@ -214,6 +222,7 @@ static ddi_dma_attr_t virtio_entry_dma_attr = {
 	1,             /* device operates on bytes */
 	0,             /* attr flag: set to 0 */
 };
+#endif
 
 static ddi_device_acc_attr_t virtio_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
@@ -242,7 +251,7 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 	}
 
 	mutex_init(&vq->vq_freelist_lock, "virtio",
-			MUTEX_DRIVER, sc->sc_icookie);
+			MUTEX_DRIVER, DDI_INTR_PRI(sc->sc_intr_prio));
 }
 
 
@@ -382,8 +391,8 @@ virtio_free_vq(struct virtqueue *vq)
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SELECT),
 		vq->vq_index);
-	ddi_put16(sc->sc_ioh,
-		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SIZE), 0);
+	ddi_put32(sc->sc_ioh,
+		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SIZE), 0);
 
 	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
 
@@ -591,54 +600,351 @@ virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second)
 	first->qe_next = second;
 }
 
-static int
-virtio_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
+static int virtio_register_msi(struct virtio_softc *sc,
+		struct virtio_int_handler *config_handler,
+		struct virtio_int_handler vq_handlers[],
+		int intr_types)
 {
-	TRACE;
-	if (cmd != DDI_ATTACH && cmd != DDI_RESUME) {
-		return (DDI_FAILURE);
+	int count, actual;
+	int int_type;
+	int i;
+	int handler_count;
+	int ret;
+
+	/* If both MSI and MSI-x are reported, prefer MSI-x. */
+	int_type = DDI_INTR_TYPE_MSI;
+	if (intr_types & DDI_INTR_TYPE_MSIX)
+		int_type = DDI_INTR_TYPE_MSIX;
+
+	/* Walk the handler table to get the number of handlers. */
+	for (handler_count = 0;
+		vq_handlers &&
+		vq_handlers[handler_count].vh_func;
+		handler_count++)
+		;
+
+	/* +1 if there is a config change handler. */
+	if (config_handler)
+		handler_count++;
+
+	/* Number of MSIs supported by the device. */
+	ret = ddi_intr_get_nintrs(sc->sc_dev, int_type, &count);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "ddi_intr_get_nintrs failed");
+		goto out_nomsi;
 	}
 
-	return (DDI_SUCCESS);
+	/* Those who try to register more handlers then the device
+	 * supports shall suffer. */
+	ASSERT(handler_count <= count);
+
+	sc->sc_intr_htable = kmem_zalloc(
+			sizeof(ddi_intr_handle_t) * handler_count,
+			KM_SLEEP);
+	if (!sc->sc_intr_htable) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate MSI handles");
+		goto out_nomsi;
+	}
+
+	cmn_err(CE_NOTE, "count = %d, handler_count = %d", count, handler_count);
+
+	ret = ddi_intr_alloc(sc->sc_dev, sc->sc_intr_htable, int_type, 0,
+			 handler_count, &actual, DDI_INTR_ALLOC_NORMAL);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate MSI: %d",
+				ret);
+		goto out_msi_alloc;
+	}
+
+	dev_err(sc->sc_dev, CE_NOTE, "Allocated %d MSI vectors", actual);
+
+	if (actual != handler_count) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Not enough MSI available, need %d", handler_count);
+		goto out_msi_available;
+	}
+
+	sc->sc_intr_num = actual;
+
+	/* Assume they are all same priority */
+	ret = ddi_intr_get_pri(sc->sc_intr_htable[0], &sc->sc_intr_prio);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "ddi_intr_get_pri failed");
+		goto out_msi_prio;
+	}
+
+	/* Add the vq handlers */
+	for (i = 0; vq_handlers[i].vh_func; i++) {
+		cmn_err(CE_NOTE, "func = %p", vq_handlers[i].vh_func);
+		ret = ddi_intr_add_handler(sc->sc_intr_htable[i],
+			vq_handlers[i].vh_func,
+			sc, vq_handlers[i].vh_priv);
+		if (ret) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"ddi_intr_add_handler failed");
+			/* Remove the handlers that succeeded. */
+			while (--i >= 0) {
+				ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+			}
+			goto out_add_handlers;
+		}
+	}
+
+	/* Don't forget the config handler */
+	if (config_handler) {
+		ret = ddi_intr_add_handler(sc->sc_intr_htable[i],
+			config_handler->vh_func,
+			sc, config_handler->vh_priv);
+		if (ret) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"ddi_intr_add_handler failed");
+			/* Remove the handlers that succeeded. */
+			while (--i >= 0) {
+				ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+			}
+			goto out_add_handlers;
+		}
+	}
+
+
+
+	TRACE;
+
+	ret = ddi_intr_get_cap(sc->sc_intr_htable[0],
+			&sc->sc_intr_cap);
+	/* Just in case. */
+	if (ret)
+		sc->sc_intr_cap = 0;
+
+	/* Enable the iterrupts. Either the whole block, or
+	 * one by one. */
+	if (sc->sc_intr_cap & DDI_INTR_FLAG_BLOCK) {
+	TRACE;
+		ret = ddi_intr_block_enable(sc->sc_intr_htable,
+				sc->sc_intr_num);
+		if (ret) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"Failed to enable MSI, falling "
+				"back to INTx");
+			goto out_enable;
+		}
+	} else {
+	TRACE;
+		for (i = 0; i < sc->sc_intr_num; i++) {
+	TRACE;
+			ret = ddi_intr_enable(sc->sc_intr_htable[i]);
+			if (ret) {
+				dev_err(sc->sc_dev, CE_WARN,
+					"Failed to enable MSI %d, "
+					"falling back to INTx", i);
+
+				while (--i >= 0) {
+					ddi_intr_disable(sc->sc_intr_htable[i]);
+				}
+				goto out_enable;
+			}
+		}
+	}
+	TRACE;
+	/* Bind the allocated MSI to the queues and config */
+
+	for (i = 0; vq_handlers[i].vh_func; i++) {
+		int check;
+	TRACE;
+		cmn_err(CE_NOTE, "Binding vq %d to MSI %d", vq_handlers[i].vh_vq->vq_index, i);
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_SELECT),
+			vq_handlers[i].vh_vq->vq_index);
+
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_VECTOR), i);
+
+		check = ddi_get16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_VECTOR));
+		if (check != i) {
+			dev_err(sc->sc_dev, CE_WARN, "Failed to bind haneler for"
+				"VQ %d, MSI %d. Check = %x",
+				vq_handlers[i].vh_vq->vq_index, i, check);
+			ret = ENODEV;
+			goto out_bind;
+		}
+	}
+
+	if (config_handler) {
+		int check;
+	TRACE;
+		cmn_err(CE_NOTE, "Binding the config to MSI %d", i);
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_CONFIG_VECTOR), i);
+
+		check = ddi_get16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_CONFIG_VECTOR));
+		if (check != i) {
+			dev_err(sc->sc_dev, CE_WARN, "Failed to bind haneler for"
+				"Config updates, MSI %d", i);
+			ret = ENODEV;
+			goto out_bind;
+		}
+	}
+
+	return (0);
+
+
+out_bind:
+
+	/* Unbind the vqs */
+	for (i = 0; i < handler_count - 1; i++) {
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_SELECT),
+			vq_handlers[i].vh_vq->vq_index);
+
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_VECTOR),
+				VIRTIO_MSI_NO_VECTOR);
+	}
+	/* And the config */
+	ddi_put16(sc->sc_ioh, (uint16_t *) (sc->sc_io_addr +
+			VIRTIO_CONFIG_CONFIG_VECTOR),
+			VIRTIO_MSI_NO_VECTOR);
+out_enable:
+	for (i = 0; i < handler_count; i++) {
+		ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+	}
+
+out_add_handlers:
+out_msi_prio:
+out_msi_available:
+	for (i = 0; i < actual; i++)
+		ddi_intr_free(sc->sc_intr_htable[i]);
+out_msi_alloc:
+	kmem_free(sc->sc_intr_htable, sizeof(ddi_intr_handle_t) * count);
+out_nomsi:
+
+	return (ret);
 }
 
 static int
-virtio_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
+virtio_register_intx(struct virtio_softc *sc,
+		struct virtio_int_handler *config_handler,
+		struct virtio_int_handler vq_handlers[])
 {
-	TRACE;
-	return (DDI_SUCCESS);
+	panic("Not implemented");
 }
-/*
- * Module operations
- */
-struct dev_ops virtio_ops = {
-	DEVO_REV,		/* devo_rev */
-	0,			/* refcnt  */
-	ddi_getinfo_1to1,	/* info */
-	nulldev,		/* identify */
-	nulldev,		/* probe */
-	virtio_attach,		/* attach */
-	virtio_detach,		/* detach */
-	nodev,			/* reset */
-	NULL,			/* driver operations */
-	NULL,			/* bus operations */
-	NULL,			/* power */
-	ddi_quiesce_not_needed,	/* quiesce */
-};
+
+int
+virtio_register_ints(struct virtio_softc *sc,
+		struct virtio_int_handler *config_handler,
+		struct virtio_int_handler vq_handlers[])
+{
+	int ret;
+	int intr_types;
+
+	/* Determine which types of interrupts are supported */
+	ret = ddi_intr_get_supported_types(sc->sc_dev, &intr_types);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "Can't get supported int types");
+		goto out_inttype;
+	}
+
+	cmn_err(CE_NOTE, "intr_types = 0x%x", intr_types);
+
+	/* If we have msi, let's use them.*/
+	if (intr_types & (DDI_INTR_TYPE_MSIX | DDI_INTR_TYPE_MSI)) {
+		ret = virtio_register_msi(sc, config_handler,
+				vq_handlers, intr_types);
+		if (!ret)
+			return (0);
+	}
+
+	/* Fall back to old-fashioned interrupts. Might just fail as well
+	   so the user would notice for sure. */
+	dev_err(sc->sc_dev, CE_WARN,
+		"Not using MSI, performance will suffer");
+
+	ret = virtio_register_intx(sc, config_handler, vq_handlers);
+
+out_inttype:
+	return (ret);
+}
+
+void
+virtio_release_ints(struct virtio_softc *sc)
+{
+	int i;
+	int ret;
+
+	/* Disable the iterrupts. Either the whole block, or
+	 * one by one. */
+	if (sc->sc_intr_cap & DDI_INTR_FLAG_BLOCK) {
+	TRACE;
+		ret = ddi_intr_block_disable(sc->sc_intr_htable,
+				sc->sc_intr_num);
+		if (ret) {
+			dev_err(sc->sc_dev, CE_WARN,
+				"Failed to disable MSIs, won't be able to"
+				"reuse next time");
+		}
+	} else {
+	TRACE;
+		for (i = 0; i < sc->sc_intr_num; i++) {
+	TRACE;
+			ret = ddi_intr_disable(sc->sc_intr_htable[i]);
+			if (ret) {
+				dev_err(sc->sc_dev, CE_WARN,
+					"Failed to disable MSI %d, "
+					"won't be able to reuse", i);
+
+			}
+		}
+	}
+
+	/* Unbind all vqs */
+	for (i = 0; i < sc->sc_nvqs; i++) {
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_SELECT), i);
+
+		ddi_put16(sc->sc_ioh,
+			(uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_QUEUE_VECTOR),
+				VIRTIO_MSI_NO_VECTOR);
+	}
+	/* And the config */
+	ddi_put16(sc->sc_ioh, (uint16_t *) (sc->sc_io_addr +
+			VIRTIO_CONFIG_CONFIG_VECTOR),
+			VIRTIO_MSI_NO_VECTOR);
+
+
+	for (i = 0; i < sc->sc_intr_num; i++) {
+		ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+	}
+
+	for (i = 0; i < sc->sc_intr_num; i++)
+		ddi_intr_free(sc->sc_intr_htable[i]);
+
+	kmem_free(sc->sc_intr_htable,
+		sizeof(ddi_intr_handle_t) * sc->sc_intr_num);
+}
 
 /*
  * Module linkage information for the kernel.
  */
-static struct modldrv modldrv = {
-	&mod_driverops, /* Type of module */
+static struct modlmisc modlmisc = {
+	&mod_miscops, /* Type of module */
 	"VirtIO common library module",
-	&virtio_ops,	/* driver ops */
 };
 
 static struct modlinkage modlinkage = {
 	MODREV_1,
 	{
-		(void *)&modldrv,
+		(void *)&modlmisc,
 		NULL
 	}
 };
