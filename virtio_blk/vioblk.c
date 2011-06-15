@@ -745,20 +745,17 @@ vioblk_dev_features(struct vioblk_softc *sc)
 /*
  * Interrupt service routine.
  */
-unsigned int
-vioblk_intr(caddr_t arg)
+uint_t vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 {
-	uint8_t isr_status;
-	struct vioblk_softc *sc = (void *)arg;
+	struct virtio_softc *vsc = (void *)arg1;
+	struct vioblk_softc *sc = container_of(vsc,
+			struct vioblk_softc, sc_virtio);
+	struct virtqueue *vq = (void *) arg2;
+
 	struct vq_entry *ve;
 	size_t len;
 	int i = 0, error;
 
-	isr_status = ddi_get8(sc->sc_virtio.sc_ioh,
-	    (uint8_t *)(sc->sc_virtio.sc_io_addr + VIRTIO_CONFIG_ISR_STATUS));
-
-	if (!isr_status)
-		return DDI_INTR_UNCLAIMED;
 
 	while ((ve = virtio_pull_chain(sc->sc_vq, &len))) {
 		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
@@ -810,6 +807,33 @@ vioblk_intr(caddr_t arg)
 	sc->sc_stats.intr_total++;
 
 	return DDI_INTR_CLAIMED;
+}
+
+uint_t vioblk_config_handler(caddr_t arg1, caddr_t arg2)
+{
+	TRACE;
+
+	return DDI_INTR_CLAIMED;
+}
+
+static int
+vioblk_register_ints(struct vioblk_softc *sc)
+{
+	int ret;
+
+	struct virtio_int_handler vioblk_conf_h = {
+		vioblk_config_handler
+	};
+
+	struct virtio_int_handler vioblk_vq_h[] = {
+		{ vioblk_int_handler, sc->sc_vq },
+		{ NULL }
+	};
+
+	ret = virtio_register_ints(&sc->sc_virtio,
+		&vioblk_conf_h, vioblk_vq_h);
+
+	return ret;
 }
 
 static int
@@ -976,18 +1000,14 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	if (ret)
 		goto exit_match;
 
+	pci_config_teardown(&pci_conf);
+
 	/* Determine which types of interrupts supported */
 	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
 	if ((ret != DDI_SUCCESS) || (!(intr_types & DDI_INTR_TYPE_FIXED))) {
 		dev_err(devinfo, CE_WARN, "fixed type interrupt is not supported");
 		goto exit_inttype;
 	}
-
-	/* get the interrupt block cookie */
-        if (ddi_get_iblock_cookie(devinfo, 0, &vsc->sc_icookie)) {
-                dev_err(devinfo, CE_WARN, "ddi_get_iblock_cookie failed");
-		goto exit_cookie;
-        }
 
 	cv_init(&sc->cv_devid, NULL, CV_DRIVER, NULL);
 	mutex_init(&sc->lock_devid, NULL, MUTEX_DRIVER, NULL);
@@ -1128,8 +1148,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/*
 	* Establish interrupt handler.
 	*/
-	if (ddi_add_intr(devinfo, 0, NULL, NULL,
-			vioblk_intr, (caddr_t)sc)) {
+	if (vioblk_register_ints(sc)) {
 		dev_err(devinfo, CE_WARN, "Unable to add interrupt");
 		goto exit_int;
 	}
@@ -1148,7 +1167,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 exit_attach_bd:
 	virtio_stop_vq_intr(sc->sc_vq);
-	ddi_remove_intr(devinfo, 0, vsc->sc_icookie);
+	virtio_release_ints(&sc->sc_virtio);
 exit_int:
 	bd_free_handle(sc->bd_h);
 exit_alloc_bd:
@@ -1193,12 +1212,11 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 
 	(void) bd_detach_handle(sc->bd_h);
 	virtio_stop_vq_intr(sc->sc_vq);
-	ddi_remove_intr(devinfo, 0, sc->sc_virtio.sc_icookie);
+	virtio_release_ints(&sc->sc_virtio);
 	vioblk_free_reqs(sc);
 	virtio_free_vq(sc->sc_vq);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 	kstat_delete(sc->sc_intrstat);
-//	pci_config_teardown(&sc->sc_virtio.pci_conf);
 	kmem_free(sc, sizeof (struct vioblk_softc));
 
 	return (DDI_SUCCESS);
