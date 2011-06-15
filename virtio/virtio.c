@@ -91,6 +91,7 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 		features);
 
 	sc->sc_features = features;
+	sc->sc_indirect = host_features & VIRTIO_F_RING_INDIRECT_DESC;
 
 	return (host_features);
 }
@@ -247,7 +248,7 @@ static ddi_device_acc_attr_t virtio_vq_devattr = {
 static void
 virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 {
-	int i;
+	int i, j;
 	int vq_size = vq->vq_num;
 
 	/* free slot management */
@@ -259,6 +260,14 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 		vq->vq_entries[i].qe_index = i;
 		vq->vq_entries[i].qe_desc = &vq->vq_descs[i];
 		vq->vq_entries[i].qe_queue = vq;
+
+		/* build the indirect descriptor chain */
+		if (vq->vq_indirect != NULL) {
+			struct vring_desc *vd = vq->vq_indirect;
+			vd += vq->vq_maxnsegs * i;
+			for (j = 0; j < vq->vq_maxnsegs-1; j++)
+				vd[j].next = j + 1;
+		}
 	}
 
 	mutex_init(&vq->vq_freelist_lock, "virtio",
@@ -274,9 +283,10 @@ struct virtqueue *
 virtio_alloc_vq(struct virtio_softc *sc,
 		int index,
 		int size,
+		int maxnsegs,
 		const char *name)
 {
-	int vq_size, allocsize1, allocsize2, allocsize = 0;
+	int vq_size, allocsize1, allocsize2, allocsize3, allocsize = 0;
 	int r;
 	unsigned int ncookies;
 	size_t len;
@@ -311,8 +321,13 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	/* allocsize2: used ring + pad */
 	allocsize2 = VIRTQUEUE_ALIGN(sizeof(struct vring_used)
 				     + sizeof(struct vring_used_elem) * vq_size);
+        /* allocsize3: indirect table */
+	if (sc->sc_indirect && maxnsegs >= MINSEG_INDIRECT)
+		allocsize3 = sizeof(struct vring_desc) * maxnsegs * vq_size;
+	else
+		sc->sc_indirect = allocsize3 = 0;
 
-	allocsize = allocsize1 + allocsize2;
+	allocsize = allocsize1 + allocsize2 + allocsize3;
 
 	r = ddi_dma_alloc_handle(sc->sc_dev, &virtio_vq_dma_attr,
 		DDI_DMA_SLEEP, NULL, &vq->vq_dma_handle);
@@ -361,6 +376,15 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	vq->vq_usedoffset = allocsize1;
 	vq->vq_used = (void*)(((char*)vq->vq_descs) + vq->vq_usedoffset);
 
+	vq->vq_maxnsegs = maxnsegs;
+	if (sc->sc_indirect) {
+		vq->vq_indirectoffset = allocsize1 + allocsize2;
+		vq->vq_indirect = (void*)(((char*)vq->vq_descs) +
+					  vq->vq_indirectoffset);
+	} else {
+		vq->vq_indirect = NULL;
+	}
+
 	/* free slot management */
 	vq->vq_entries = kmem_zalloc(sizeof(struct vq_entry)*vq_size,
 				     KM_NOSLEEP);
@@ -373,8 +397,14 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	virtio_init_vq(sc, vq);
 
 	dev_err(sc->sc_dev, CE_NOTE,
-		   "allocated %u byte for virtqueue %d for %s, "
-		   "size %d\n", allocsize, index, name, vq_size);
+		   "allocated %u bytes for virtqueue %d for %s, "
+		   "size %d", allocsize, index, name, vq_size);
+	if (sc->sc_indirect) {
+		dev_err(sc->sc_dev, CE_NOTE,
+			"using %d bytes (%d entries) of indirect descriptors",
+			 allocsize3, maxnsegs * vq_size);
+	}
+
 	return vq;
 
 out_zalloc:
@@ -434,6 +464,7 @@ vq_alloc_entry(struct virtqueue *vq)
 	mutex_exit(&vq->vq_freelist_lock);
 
 	qe->qe_next = NULL;
+	qe->ind_next = NULL;
 	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
 	return qe;
@@ -448,18 +479,69 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 }
 
 void
-virtio_ve_set(struct vq_entry *qe, ddi_dma_handle_t dmah,
-	uint32_t paddr, uint16_t len, bool write)
+virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len, bool write)
 {
 	qe->qe_desc->addr = paddr;
 	qe->qe_desc->len = len;
-	qe->qe_desc->flags = 0;
-	qe->qe_dmah = dmah;
 
 	/* 'write' - from the driver's point of view*/
 	if (!write) {
-		qe->qe_desc->flags = VRING_DESC_F_WRITE;
+		qe->qe_desc->flags |= VRING_DESC_F_WRITE;
 	}
+}
+
+void
+virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write)
+{
+	struct virtqueue *vq = qe->qe_queue;
+
+	ASSERT(nsegs > 1);
+	ASSERT(vq->vq_indirect);
+	ASSERT(nsegs > vq->vq_maxnsegs);
+
+	qe->qe_desc->addr = vq->vq_dma_cookie.dmac_address +
+		vq->vq_indirectoffset;
+	qe->qe_desc->addr += sizeof(struct vring_desc) *
+		vq->vq_maxnsegs * qe->qe_index;
+	qe->qe_desc->len = sizeof(struct vring_desc) * nsegs;
+	qe->qe_desc->flags = write ? 0 : VRING_DESC_F_WRITE;
+	qe->qe_desc->flags |= VRING_DESC_F_INDIRECT;
+	qe->ind_next = vq->vq_indirect;
+	qe->ind_next += vq->vq_maxnsegs * qe->qe_index;
+}
+
+void
+virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
+       ddi_dma_cookie_t dma_cookie, unsigned int ncookies, bool write)
+{
+	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
+	int i;
+
+	ASSERT(vq->vq_indirect);
+
+	flags |= VRING_DESC_F_NEXT;
+	for (i = 0; i < ncookies; i++) {
+		qe->ind_next[i].addr = dma_cookie.dmac_address;
+		qe->ind_next[i].len = dma_cookie.dmac_size;
+		qe->ind_next[i].flags = flags;
+		ddi_dma_nextcookie(dma_handle, &dma_cookie);
+	}
+	qe->ind_next += ncookies;
+}
+
+void
+virtio_ve_add_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
+		  bool write)
+{
+	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
+
+	ASSERT(vq->vq_indirect);
+
+	flags |= VRING_DESC_F_NEXT;
+	qe->ind_next->addr = paddr;
+	qe->ind_next->len = len;
+	qe->ind_next->flags = flags;
+	qe->ind_next++;
 }
 
 static void
@@ -476,7 +558,6 @@ virtio_notify(struct virtqueue *vq)
 			(uint16_t *) (vsc->sc_io_addr +
 				VIRTIO_CONFIG_QUEUE_NOTIFY),
 			vq->vq_index);
-
 }
 
 void
@@ -504,6 +585,10 @@ virtio_sync_vq(struct virtqueue *vq)
 	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
 		sizeof(struct vring_avail), DDI_DMA_SYNC_FORDEV);
 
+	if (vq->vq_indirect)
+		(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_indirectoffset,
+		    sizeof(struct vring_desc) * vq->vq_maxnsegs * vq->vq_num,
+		    DDI_DMA_SYNC_FORDEV);
 
 	virtio_notify(vq);
 }
@@ -529,6 +614,11 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 		qe = qe->qe_next;
 	} while (qe);
 
+	/* clear for the last one */
+	if (head->ind_next) {
+		struct vring_desc *prev = head->ind_next - 1;
+		prev->flags &= ~VRING_DESC_F_NEXT;
+	}
 
 	idx = atomic_inc_16_nv(&vq->vq_avail_idx) - 1;
 	vq->vq_avail->ring[idx % vq->vq_num] = head->qe_index;
