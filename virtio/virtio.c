@@ -469,7 +469,7 @@ virtio_notify(struct virtqueue *vq)
 
 	/* Find out if we need to notify the device. */
 	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
-		sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
+		sizeof(struct vring_used), DDI_DMA_SYNC_FORKERNEL);
 
 	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
 		ddi_put16(vsc->sc_ioh,
@@ -551,7 +551,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	 * from the previous sync. */
 	if (vq->vq_used_idx == vq->vq_used->idx) {
 		ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
-			sizeof(struct vring_used), DDI_DMA_SYNC_FORCPU);
+			sizeof(struct vring_used), DDI_DMA_SYNC_FORKERNEL);
 
 		/* Still nothing? Bye.*/
 		if (vq->vq_used_idx == vq->vq_used->idx)
@@ -567,7 +567,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	ddi_dma_sync(vq->vq_dma_handle,
 		vq->vq_usedoffset + sizeof(struct vring_used) +
 			sizeof(struct vring_used_elem) * usedidx,
-		sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORCPU);
+		sizeof(struct vring_used_elem), DDI_DMA_SYNC_FORKERNEL);
 
 	slot = vq->vq_used->ring[usedidx].id;
 	*len = vq->vq_used->ring[usedidx].len;
@@ -575,7 +575,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	/* And the descriptor */
 	ddi_dma_sync(vq->vq_dma_handle,
 		sizeof(struct vring_desc) * slot,
-		sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
+		sizeof(struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	head = tmp = &vq->vq_entries[slot];
 
 	/* Sync the rest of the chain*/
@@ -583,7 +583,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 		tmp = tmp->qe_next;
 		ddi_dma_sync(vq->vq_dma_handle,
 			sizeof(struct vring_desc) * tmp->qe_index,
-			sizeof(struct vring_desc), DDI_DMA_SYNC_FORCPU);
+			sizeof(struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	}
 
 	return head;
