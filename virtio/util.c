@@ -50,7 +50,7 @@ void hex_dump(char *prefix, void *addr, int len)
 	cmn_err(CE_NOTE, "Dumping %d bytes starting from 0x%p", len, base);
 
 	while (i < len) {
-		sprintf(bptr, "%02hhx ", base[i]);
+		sprintf(bptr, "%02x ", base[i]);
 		bptr += 3;
 		i++;
 
