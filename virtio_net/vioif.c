@@ -620,11 +620,10 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 		goto exit_buf;
 	}
 
-	virtio_ve_set(ve_hdr, buf->b_dmah, buf->b_paddr,
+	virtio_ve_set(ve_hdr, buf->b_paddr,
 		sizeof(struct virtio_net_hdr), B_FALSE);
 
-	virtio_ve_set(ve, buf->b_dmah,
-		buf->b_paddr + sizeof(struct virtio_net_hdr),
+	virtio_ve_set(ve, buf->b_paddr + sizeof(struct virtio_net_hdr),
 		sc->sc_rxbuf_size - sizeof(struct virtio_net_hdr),
 		B_FALSE);
 
@@ -673,7 +672,7 @@ static int vioif_add_rx_merge(struct vioif_softc *sc, int kmflag)
 		return -1;
 	}
 
-	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr + VIOIF_IP_ALIGN,
+	virtio_ve_set(ve, buf->b_paddr + VIOIF_IP_ALIGN,
 		sc->sc_rxbuf_size - VIOIF_IP_ALIGN, B_FALSE);
 
 	virtio_push_chain(ve, B_FALSE);
@@ -980,12 +979,11 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 	ddi_dma_sync(buf_hdr->b_dmah, 0, hdr_len,
 		DDI_DMA_SYNC_FORDEV);
 
-	virtio_ve_set(ve_hdr, buf_hdr->b_dmah, buf_hdr->b_paddr,
-		hdr_len, B_TRUE);
+	virtio_ve_set(ve_hdr, buf_hdr->b_paddr, hdr_len, B_TRUE);
 
 	mcopymsg(mb, buf->b_buf);
 	ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
-	virtio_ve_set(ve, buf->b_dmah, buf->b_paddr, msg_size, B_TRUE);
+	virtio_ve_set(ve, buf->b_paddr, msg_size, B_TRUE);
 
 
 //	ddi_dma_sync(buf_hdr->b_dmah, 0, sizeof(struct virtio_net_hdr),
@@ -1513,19 +1511,20 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_cache;
 	}
 
-	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0, VIOIF_RX_QLEN, "rx");
+	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0, VIOIF_RX_QLEN, 0, "rx");
 	if (!sc->sc_rx_vq) {
 		goto exit_alloc1;
 	}
 
 
-	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1, VIOIF_TX_QLEN, "tx");
+	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1, VIOIF_TX_QLEN, 0, "tx");
 	if (!sc->sc_rx_vq) {
 		goto exit_alloc2;
 	}
 
 	if (vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ)) {
-		sc->sc_ctrl_vq = virtio_alloc_vq(&sc->sc_virtio, 2, VIOIF_CTRL_QLEN, "ctrl");
+		sc->sc_ctrl_vq = virtio_alloc_vq(&sc->sc_virtio, 2,
+				VIOIF_CTRL_QLEN, 0, "ctrl");
 		if (!sc->sc_ctrl_vq) {
 			goto exit_alloc3;
 		}
