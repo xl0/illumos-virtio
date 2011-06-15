@@ -137,15 +137,22 @@ virtio_read_device_config_4(struct virtio_softc *sc, int index)
 uint64_t
 virtio_read_device_config_8(struct virtio_softc *sc, int index)
 {
-	return ddi_get64(sc->sc_ioh,
-		(uint64_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
+	uint64_t r;
+
+	r = ddi_get32(sc->sc_ioh,
+		(uint32_t *) (sc->sc_io_addr + sc->sc_config_offset +
+			      index + sizeof(uint32_t)));
+	r <<= 32;
+	r += ddi_get32(sc->sc_ioh,
+		(uint32_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
+	return r;
 }
 
 void
 virtio_write_device_config_1(struct virtio_softc *sc,
 			     int index, uint8_t value)
 {
-	ddi_put8(sc->sc_ioh, 
+	ddi_put8(sc->sc_ioh,
 		(uint8_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
 		value);
 }
@@ -172,9 +179,13 @@ void
 virtio_write_device_config_8(struct virtio_softc *sc,
 			     int index, uint64_t value)
 {
-	ddi_put64(sc->sc_ioh,
-		(uint64_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
-		value);
+	ddi_put32(sc->sc_ioh,
+		 (uint32_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
+		 value & 0xFFFFFFFF);
+	ddi_put32(sc->sc_ioh,
+		 (uint32_t *) (sc->sc_io_addr + sc->sc_config_offset+
+			       index + sizeof(uint32_t)),
+		 value >> 32);
 }
 
 /*
