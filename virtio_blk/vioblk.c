@@ -182,14 +182,14 @@ static struct dev_ops vioblk_stream_ops = {
 	DEVO_REV,
 	0,
 	ddi_no_info,
-	nulldev,		/* identify */
-	nulldev,		/* probe */
+	nulldev,	/* identify */
+	nulldev,	/* probe */
 	vioblk_attach,	/* attach */
 	vioblk_detach,	/* detach */
-	nodev,			/* reset */
-	NULL,			/* cb_ops */
-	NULL,			/* bus_ops */
-	NULL,			/* power */
+	nodev,		/* reset */
+	NULL,		/* cb_ops */
+	NULL,		/* bus_ops */
+	NULL,		/* power */
 	vioblk_quiesce	/* quiesce */
 };
 
@@ -198,7 +198,7 @@ extern struct mod_ops mod_driverops;
 
 static struct modldrv modldrv = {
 	&mod_driverops,		/* Type of module.  This one is a driver */
-	vioblk_stream_ident,/* short description */
+	vioblk_stream_ident,    /* short description */
 	&vioblk_stream_ops	/* driver specific ops */
 };
 
@@ -212,7 +212,7 @@ static struct modlinkage modlinkage = {
 
 ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEVICE_ATTR_V0,
-	DDI_NEVERSWAP_ACC, /* virtio is always native byte order */
+	DDI_NEVERSWAP_ACC,      /* virtio is always native byte order */
 	DDI_STRICTORDER_ACC
 };
 
@@ -251,7 +251,6 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 		   uint32_t len)
 {
 	struct vioblk_req *req;
-	struct vioblk_req_hdr *hdr;
 	struct vq_entry *ve_hdr;
 	unsigned int ncookies;
 	ddi_dma_cookie_t dma_cookie;
@@ -342,7 +341,6 @@ static int
 vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 {
 	struct vioblk_req *req;
-	struct vioblk_req_hdr *hdr;
 	struct vq_entry *ve, *ve_hdr, *ve_next;
 	unsigned int ncookies;
 	ddi_dma_cookie_t dma_cookie;
@@ -440,7 +438,6 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 		}
 	}
 
-send_status:
 	/* sending status */
 	ve_next = vq_alloc_entry(sc->sc_vq);
 	if (!ve_next) {
@@ -483,7 +480,7 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 	else
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
 				xfer->x_nblks * sc->sc_blk_size);
-	return ret;
+	return (ret);
 }
 
 static int
@@ -498,7 +495,7 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 	else
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
 			xfer->x_nblks * sc->sc_blk_size);
-	return ret;
+	return (ret);
 }
 
 static int
@@ -515,7 +512,7 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 			xfer->x_nblks * sc->sc_blk_size);
 	if (!ret)
 		sc->sc_stats.rw_cacheflush++;
-	return ret;
+	return (ret);
 }
 
 static int
@@ -535,12 +532,11 @@ vioblk_dump(void *arg, bd_xfer_t *xfer_in)
 	if (ret) {
 		dev_err(sc->sc_dev, CE_WARN,
 			"Cannot send dump request %d", xfer_in->x_blkno);
-		return ret;
+		return (ret);
 	}
 
 	while ((ve = virtio_pull_chain(sc->sc_vq, &len))) {
 		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
-		bd_xfer_t *xfer = req->xfer;
 
 		/* syncing payload and freeing DMA handle */
 		if (req->bd_dmah)
@@ -554,7 +550,7 @@ vioblk_dump(void *arg, bd_xfer_t *xfer_in)
 		virtio_free_chain(ve);
 	}
 
-	return DDI_SUCCESS;
+	return (DDI_SUCCESS);
 }
 
 static void
@@ -578,7 +574,7 @@ vioblk_mediainfo(void *arg, bd_media_t *media)
 	media->m_nblks = sc->sc_nblks;
 	media->m_blksize = sc->sc_blk_size;
 	media->m_readonly = sc->sc_readonly;
-	return 0;
+	return (0);
 }
 
 static int
@@ -599,7 +595,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	ret = vioblk_rw(sc, &sc->xfer_devid, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_ID_BYTES);
 	if (ret) {
 		mutex_exit(&sc->lock_devid);
-		return ret;
+		return (ret);
 	}
 
 	/* wait for reply */
@@ -609,14 +605,14 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	/* timeout */
 	if (ret < 0) {
 		dev_err(devinfo, CE_WARN, "Cannot get devid from the device");
-		return ret;
+		return (ret);
 	}
 
 	ret = ddi_devid_init(devinfo, DEVID_ATA_SERIAL,
 		VIRTIO_BLK_ID_BYTES, sc->devid, devid);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "Cannot build devid from the device");
-		return ret;
+		return (ret);
 	}
 
 	dev_err(sc->sc_dev, CE_NOTE,
@@ -627,7 +623,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 		sc->devid[12], sc->devid[13], sc->devid[14], sc->devid[15],
 		sc->devid[16], sc->devid[17], sc->devid[18], sc->devid[19]);
 
-	return 0;
+	return (0);
 }
 
 static int
@@ -640,9 +636,6 @@ vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 	revision = pci_config_get8(pconf, PCI_CONF_REVID);
 	subvendor = pci_config_get16(pconf, PCI_CONF_SUBVENID);
 	subdevice = pci_config_get16(pconf, PCI_CONF_SUBSYSID);
-
-	dev_err(devinfo, CE_NOTE, "match: %x:%x, rev %d, sub: %x:%x",
-		vendor, device, revision, subvendor, subdevice);
 
 	if (vendor != PCI_VENDOR_QUMRANET) {
 		dev_err(devinfo, CE_WARN,
@@ -750,7 +743,6 @@ uint_t vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 	struct virtio_softc *vsc = (void *)arg1;
 	struct vioblk_softc *sc = container_of(vsc,
 			struct vioblk_softc, sc_virtio);
-	struct virtqueue *vq = (void *) arg2;
 
 	struct vq_entry *ve;
 	size_t len;
@@ -806,14 +798,15 @@ uint_t vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		sc->sc_stats.intr_queuemax = i;
 	sc->sc_stats.intr_total++;
 
-	return DDI_INTR_CLAIMED;
+	return (DDI_INTR_CLAIMED);
 }
 
 uint_t vioblk_config_handler(caddr_t arg1, caddr_t arg2)
 {
+        /* We want to know if we ever get here. */
 	TRACE;
 
-	return DDI_INTR_CLAIMED;
+	return (DDI_INTR_CLAIMED);
 }
 
 static int
@@ -826,14 +819,14 @@ vioblk_register_ints(struct vioblk_softc *sc)
 	};
 
 	struct virtio_int_handler vioblk_vq_h[] = {
-		{ vioblk_int_handler, sc->sc_vq },
+		{ vioblk_int_handler },
 		{ NULL }
 	};
 
 	ret = virtio_register_ints(&sc->sc_virtio,
 		&vioblk_conf_h, vioblk_vq_h);
 
-	return ret;
+	return (ret);
 }
 
 static int
@@ -946,7 +939,7 @@ vioblk_ksupdate(kstat_t *ksp, int rw)
 			sc->sc_stats.intr_total;
 	}
 
-	return 0;
+	return (0);
 }
 
 static int
@@ -1146,8 +1139,8 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 
 	/*
-	* Establish interrupt handler.
-	*/
+	 * Establish interrupt handler.
+	 */
 	if (vioblk_register_ints(sc)) {
 		dev_err(devinfo, CE_WARN, "Unable to add interrupt");
 		goto exit_int;
@@ -1184,7 +1177,6 @@ exit_map:
 exit_inttype:
 	mutex_destroy(&sc->lock_devid);
 	cv_destroy(&sc->cv_devid);
-exit_cookie:
 exit_match:
 exit_pci_conf:
 	kmem_free(sc, sizeof (struct vioblk_softc));
@@ -1202,7 +1194,7 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 		break;
 
 	case DDI_PM_SUSPEND:
-		cmn_err(CE_WARN, "suspend unsupported yet");
+		cmn_err(CE_WARN, "suspend not supported yet");
 		return (DDI_FAILURE);
 
 	default:
@@ -1225,14 +1217,13 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 int
 vioblk_quiesce(dev_info_t *dip)
 {
-	TRACE;
-	return DDI_FAILURE;
+	return (DDI_FAILURE);
 }
 
 int
 _init(void)
 {
-	int	rv;
+	int rv;
 
 	bd_mod_init(&vioblk_stream_ops);
 
@@ -1246,11 +1237,12 @@ _init(void)
 int
 _fini(void)
 {
-	int	rv;
+	int rv;
 
 	if ((rv = mod_remove(&modlinkage)) == 0) {
 		bd_mod_fini(&vioblk_stream_ops);
 	}
+
 	return (rv);
 }
 

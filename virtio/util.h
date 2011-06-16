@@ -16,8 +16,10 @@ static inline int up_to_power2(int i) {
     return (1 << (highbit(i) - 1));
 }
 
-/* XXX Stolen from the Linux kernel! Need to find a BSD one, or too trivial to
- * be copyrightable? */
+/* 
+ * Stolen from the Linux kernel! Will find a BSD one, but pls don't
+ * sue us yet. ;)
+ */
 #define container_of(ptr, type, member) ({ \
     const typeof( ((type *)0)->member ) *__mptr = (ptr); \
     (type *)( (char *)__mptr - offsetof(type,member) );})

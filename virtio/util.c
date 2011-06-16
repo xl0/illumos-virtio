@@ -13,7 +13,7 @@ void
 dev_err(dev_info_t *dip, int ce, char *fmt, ...)
 {
 	va_list ap;
-	char    buf[256];
+	char buf[256];
 
 	ASSERT(dip != NULL);
 
@@ -28,7 +28,7 @@ dev_err(dev_info_t *dip, int ce, char *fmt, ...)
 void dev_panic(dev_info_t *dip, char *fmt, ...)
 {
 	va_list ap;
-	char    buf[256];
+	char buf[256];
 
 	ASSERT(dip != NULL);
 

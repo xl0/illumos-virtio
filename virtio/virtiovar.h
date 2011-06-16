@@ -149,7 +149,6 @@ struct virtio_softc {
 
 struct virtio_int_handler {
 	ddi_intr_handler_t *vh_func;
-	struct virtqueue *vh_vq;
 	void *vh_priv;
 };
 

@@ -142,16 +142,16 @@ virtio_read_device_config_8(struct virtio_softc *sc, int index)
 
 	r = ddi_get32(sc->sc_ioh,
 		(uint32_t *) (sc->sc_io_addr + sc->sc_config_offset +
-			      index + sizeof(uint32_t)));
+			index + sizeof(uint32_t)));
 	r <<= 32;
 	r += ddi_get32(sc->sc_ioh,
 		(uint32_t *) (sc->sc_io_addr + sc->sc_config_offset + index));
-	return r;
+	return (r);
 }
 
 void
 virtio_write_device_config_1(struct virtio_softc *sc,
-			     int index, uint8_t value)
+			int index, uint8_t value)
 {
 	ddi_put8(sc->sc_ioh,
 		(uint8_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
@@ -160,7 +160,7 @@ virtio_write_device_config_1(struct virtio_softc *sc,
 
 void
 virtio_write_device_config_2(struct virtio_softc *sc,
-			     int index, uint16_t value)
+			int index, uint16_t value)
 {
 	ddi_put16(sc->sc_ioh,
 		 (uint16_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
@@ -169,7 +169,7 @@ virtio_write_device_config_2(struct virtio_softc *sc,
 
 void
 virtio_write_device_config_4(struct virtio_softc *sc,
-			     int index, uint32_t value)
+			int index, uint32_t value)
 {
 	ddi_put32(sc->sc_ioh,
 		 (uint32_t *) (sc->sc_io_addr + sc->sc_config_offset + index),
@@ -205,36 +205,19 @@ virtio_start_vq_intr(struct virtqueue *vq)
 }
 
 static ddi_dma_attr_t virtio_vq_dma_attr = {
-	DMA_ATTR_V0,   /* Version number */
-	0,	       /* low address */
-	0xFFFFFFFF,    /* high address */
-	0xFFFFFFFF,    /* counter register max */
+	DMA_ATTR_V0,	/* Version number */
+	0,		/* low address */
+	0xFFFFFFFF,	/* high address */
+	0xFFFFFFFF,	/* counter register max */
 	VIRTIO_PAGE_SIZE, /* page alignment */
-	0x3F,          /* burst sizes: 1 - 32 */
-	0x1,           /* minimum transfer size */
-	0xFFFFFFFF,    /* max transfer size */
-	0xFFFFFFFF,    /* address register max */
-	1,             /* no scatter-gather */
-	1,             /* device operates on bytes */
-	0,             /* attr flag: set to 0 */
+	0x3F,		/* burst sizes: 1 - 32 */
+	0x1,		/* minimum transfer size */
+	0xFFFFFFFF,	/* max transfer size */
+	0xFFFFFFFF,	/* address register max */
+	1,		/* no scatter-gather */
+	1,		/* device operates on bytes */
+	0,		/* attr flag: set to 0 */
 };
-
-#if 0
-static ddi_dma_attr_t virtio_entry_dma_attr = {
-	DMA_ATTR_V0,   /* Version number */
-	0,	       /* low address */
-	0xFFFFFFFF,    /* high address */
-	0xFFFFFFFF,    /* counter register max */
-	1,             /* default alignment */
-	0x3F,          /* burst sizes: 1 - 32 */
-	0x1,           /* minimum transfer size */
-	0xFFFFFFFF,    /* max transfer size */
-	0xFFFFFFFF,    /* address register max */
-	1,             /* no scatter-gather */
-	1,             /* device operates on bytes */
-	0,             /* attr flag: set to 0 */
-};
-#endif
 
 static ddi_device_acc_attr_t virtio_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
@@ -291,9 +274,9 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	unsigned int ncookies;
 	size_t len;
 	struct virtqueue *vq;
+
 #define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))&	\
 				 ~(VIRTIO_PAGE_SIZE-1))
-	TRACE;
 
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SELECT), index);
@@ -397,7 +380,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	virtio_init_vq(sc, vq);
 
 	dev_err(sc->sc_dev, CE_NOTE,
-		   "allocated %u bytes for virtqueue %d for %s, "
+		   "allocated %u bytes for virtqueue %d (%s), "
 		   "size %d", allocsize, index, name, vq_size);
 	if (sc->sc_indirect) {
 		dev_err(sc->sc_dev, CE_NOTE,
@@ -405,7 +388,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 			 allocsize3, maxnsegs * vq_size);
 	}
 
-	return vq;
+	return (vq);
 
 out_zalloc:
 	ddi_dma_unbind_handle(vq->vq_dma_handle);
@@ -424,8 +407,6 @@ void
 virtio_free_vq(struct virtqueue *vq)
 {
 	struct virtio_softc *sc = vq->vq_owner;
-
-	TRACE;
 
 	/* device must be already deactivated */
 	/* tell device that there's no virtqueue any longer */
@@ -457,7 +438,7 @@ vq_alloc_entry(struct virtqueue *vq)
 	mutex_enter(&vq->vq_freelist_lock);
 	if (list_is_empty(&vq->vq_freelist)) {
 		mutex_exit(&vq->vq_freelist_lock);
-		return NULL;
+		return (NULL);
 	}
 	qe = list_remove_head(&vq->vq_freelist);
 
@@ -467,7 +448,7 @@ vq_alloc_entry(struct virtqueue *vq)
 	qe->ind_next = NULL;
 	memset(qe->qe_desc, 0, sizeof(struct vring_desc));
 
-	return qe;
+	return (qe);
 }
 
 void
@@ -497,7 +478,7 @@ virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write)
 
 	ASSERT(nsegs > 1);
 	ASSERT(vq->vq_indirect);
-	ASSERT(nsegs > vq->vq_maxnsegs);
+	ASSERT(nsegs <= vq->vq_maxnsegs);
 
 	qe->qe_desc->addr = vq->vq_dma_cookie.dmac_address +
 		vq->vq_indirectoffset;
@@ -517,7 +498,7 @@ virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
 	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
 	int i;
 
-	ASSERT(vq->vq_indirect);
+	ASSERT(qe->qe_queue->vq_indirect);
 
 	flags |= VRING_DESC_F_NEXT;
 	for (i = 0; i < ncookies; i++) {
@@ -535,7 +516,7 @@ virtio_ve_add_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
 {
 	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
 
-	ASSERT(vq->vq_indirect);
+	ASSERT(qe->qe_queue->vq_indirect);
 
 	flags |= VRING_DESC_F_NEXT;
 	qe->ind_next->addr = paddr;
@@ -645,7 +626,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 
 		/* Still nothing? Bye.*/
 		if (vq->vq_used_idx == vq->vq_used->idx)
-			return NULL;
+			return (NULL);
 	}
 
 
@@ -676,7 +657,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 			sizeof(struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	}
 
-	return head;
+	return (head);
 }
 
 void
@@ -747,8 +728,6 @@ static int virtio_register_msi(struct virtio_softc *sc,
 		goto out_nomsi;
 	}
 
-	cmn_err(CE_NOTE, "count = %d, handler_count = %d", count, handler_count);
-
 	ret = ddi_intr_alloc(sc->sc_dev, sc->sc_intr_htable, int_type, 0,
 			 handler_count, &actual, DDI_INTR_ALLOC_NORMAL);
 	if (ret) {
@@ -757,11 +736,10 @@ static int virtio_register_msi(struct virtio_softc *sc,
 		goto out_msi_alloc;
 	}
 
-	dev_err(sc->sc_dev, CE_NOTE, "Allocated %d MSI vectors", actual);
-
 	if (actual != handler_count) {
 		dev_err(sc->sc_dev, CE_WARN,
-			"Not enough MSI available, need %d", handler_count);
+			"Not enough MSI available: need %d, available %d",
+			handler_count, actual);
 		goto out_msi_available;
 	}
 
@@ -776,7 +754,6 @@ static int virtio_register_msi(struct virtio_softc *sc,
 
 	/* Add the vq handlers */
 	for (i = 0; vq_handlers[i].vh_func; i++) {
-		cmn_err(CE_NOTE, "func = %p", vq_handlers[i].vh_func);
 		ret = ddi_intr_add_handler(sc->sc_intr_htable[i],
 			vq_handlers[i].vh_func,
 			sc, vq_handlers[i].vh_priv);
@@ -807,10 +784,6 @@ static int virtio_register_msi(struct virtio_softc *sc,
 		}
 	}
 
-
-
-	TRACE;
-
 	ret = ddi_intr_get_cap(sc->sc_intr_htable[0],
 			&sc->sc_intr_cap);
 	/* Just in case. */
@@ -820,7 +793,6 @@ static int virtio_register_msi(struct virtio_softc *sc,
 	/* Enable the iterrupts. Either the whole block, or
 	 * one by one. */
 	if (sc->sc_intr_cap & DDI_INTR_FLAG_BLOCK) {
-	TRACE;
 		ret = ddi_intr_block_enable(sc->sc_intr_htable,
 				sc->sc_intr_num);
 		if (ret) {
@@ -830,9 +802,7 @@ static int virtio_register_msi(struct virtio_softc *sc,
 			goto out_enable;
 		}
 	} else {
-	TRACE;
 		for (i = 0; i < sc->sc_intr_num; i++) {
-	TRACE;
 			ret = ddi_intr_enable(sc->sc_intr_htable[i]);
 			if (ret) {
 				dev_err(sc->sc_dev, CE_WARN,
@@ -846,17 +816,13 @@ static int virtio_register_msi(struct virtio_softc *sc,
 			}
 		}
 	}
-	TRACE;
 	/* Bind the allocated MSI to the queues and config */
 
 	for (i = 0; vq_handlers[i].vh_func; i++) {
 		int check;
-	TRACE;
-		cmn_err(CE_NOTE, "Binding vq %d to MSI %d", vq_handlers[i].vh_vq->vq_index, i);
 		ddi_put16(sc->sc_ioh,
 			(uint16_t *) (sc->sc_io_addr +
-				VIRTIO_CONFIG_QUEUE_SELECT),
-			vq_handlers[i].vh_vq->vq_index);
+				VIRTIO_CONFIG_QUEUE_SELECT), i);
 
 		ddi_put16(sc->sc_ioh,
 			(uint16_t *) (sc->sc_io_addr +
@@ -868,7 +834,7 @@ static int virtio_register_msi(struct virtio_softc *sc,
 		if (check != i) {
 			dev_err(sc->sc_dev, CE_WARN, "Failed to bind haneler for"
 				"VQ %d, MSI %d. Check = %x",
-				vq_handlers[i].vh_vq->vq_index, i, check);
+				i, i, check);
 			ret = ENODEV;
 			goto out_bind;
 		}
@@ -876,8 +842,6 @@ static int virtio_register_msi(struct virtio_softc *sc,
 
 	if (config_handler) {
 		int check;
-	TRACE;
-		cmn_err(CE_NOTE, "Binding the config to MSI %d", i);
 		ddi_put16(sc->sc_ioh,
 			(uint16_t *) (sc->sc_io_addr +
 				VIRTIO_CONFIG_CONFIG_VECTOR), i);
@@ -902,8 +866,7 @@ out_bind:
 	for (i = 0; i < handler_count - 1; i++) {
 		ddi_put16(sc->sc_ioh,
 			(uint16_t *) (sc->sc_io_addr +
-				VIRTIO_CONFIG_QUEUE_SELECT),
-			vq_handlers[i].vh_vq->vq_index);
+				VIRTIO_CONFIG_QUEUE_SELECT), i);
 
 		ddi_put16(sc->sc_ioh,
 			(uint16_t *) (sc->sc_io_addr +
@@ -954,8 +917,6 @@ virtio_register_ints(struct virtio_softc *sc,
 		goto out_inttype;
 	}
 
-	cmn_err(CE_NOTE, "intr_types = 0x%x", intr_types);
-
 	/* If we have msi, let's use them.*/
 	if (intr_types & (DDI_INTR_TYPE_MSIX | DDI_INTR_TYPE_MSI)) {
 		ret = virtio_register_msi(sc, config_handler,
@@ -984,7 +945,6 @@ virtio_release_ints(struct virtio_softc *sc)
 	/* Disable the iterrupts. Either the whole block, or
 	 * one by one. */
 	if (sc->sc_intr_cap & DDI_INTR_FLAG_BLOCK) {
-	TRACE;
 		ret = ddi_intr_block_disable(sc->sc_intr_htable,
 				sc->sc_intr_num);
 		if (ret) {
@@ -993,9 +953,7 @@ virtio_release_ints(struct virtio_softc *sc)
 				"reuse next time");
 		}
 	} else {
-	TRACE;
 		for (i = 0; i < sc->sc_intr_num; i++) {
-	TRACE;
 			ret = ddi_intr_disable(sc->sc_intr_htable[i]);
 			if (ret) {
 				dev_err(sc->sc_dev, CE_WARN,
@@ -1053,20 +1011,17 @@ static struct modlinkage modlinkage = {
 int
 _init(void)
 {
-	TRACE;
 	return (mod_install(&modlinkage));
 }
 
 int
 _fini(void)
 {
-	TRACE;
 	return (mod_remove(&modlinkage));
 }
 
 int
 _info(struct modinfo *modinfop)
 {
-	TRACE;
 	return (mod_info(&modlinkage, modinfop));
 }
