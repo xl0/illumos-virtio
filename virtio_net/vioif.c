@@ -1243,6 +1243,8 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	vsc = &sc->sc_virtio;
 
+	virtio_init(vsc);
+
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
 	vsc->sc_dev = devinfo;
@@ -1282,18 +1284,15 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_map;
 	}
 
-	sc->sc_virtio.sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_MSI;
 
 	virtio_device_reset(&sc->sc_virtio);
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
 
-
 	ret = vioif_dev_features(sc);
 	if (ret)
 		goto exit_features;
 
-	vioif_get_mac(sc);
 
 	vsc->sc_nvqs = vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ) ? 3 : 2;
 
@@ -1363,6 +1362,8 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate interrupt(s)!");
 		goto exit_ints;
 	}
+
+	vioif_get_mac(sc);
 
 	return (DDI_SUCCESS);
 

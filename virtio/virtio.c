@@ -57,6 +57,12 @@
  */
 
 void
+virtio_init(struct virtio_softc *sc)
+{
+	sc->sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
+}
+
+void
 virtio_set_status(struct virtio_softc *sc, int status)
 {
 	int old = 0;
@@ -814,6 +820,10 @@ static int virtio_register_msi(struct virtio_softc *sc,
 			}
 		}
 	}
+
+	/* We know we are using MSI, so set the config offset. */
+	sc->sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_MSI;
+
 	/* Bind the allocated MSI to the queues and config */
 
 	for (i = 0; vq_handlers[i].vh_func; i++) {
@@ -1000,6 +1010,9 @@ virtio_register_intx(struct virtio_softc *sc,
 		goto out_add_handlers;
 	}
 
+	/* We know we are not using MSI, so set the config offset. */
+	sc->sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
+
 	ret = ddi_intr_enable(sc->sc_intr_htable[0]);
 	if (ret) {
 		dev_err(sc->sc_dev, CE_WARN,
@@ -1070,6 +1083,26 @@ virtio_release_ints(struct virtio_softc *sc)
 	int i;
 	int ret;
 
+	/* We were running with MSI, unbind them. */
+	if (sc->sc_config_offset == VIRTIO_CONFIG_DEVICE_CONFIG_MSI) {
+		/* Unbind all vqs */
+		for (i = 0; i < sc->sc_nvqs; i++) {
+			ddi_put16(sc->sc_ioh,
+				(uint16_t *) (sc->sc_io_addr +
+					VIRTIO_CONFIG_QUEUE_SELECT), i);
+
+			ddi_put16(sc->sc_ioh,
+				(uint16_t *) (sc->sc_io_addr +
+					VIRTIO_CONFIG_QUEUE_VECTOR),
+					VIRTIO_MSI_NO_VECTOR);
+		}
+		/* And the config */
+		ddi_put16(sc->sc_ioh, (uint16_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_CONFIG_VECTOR),
+				VIRTIO_MSI_NO_VECTOR);
+
+	}
+
 	/* Disable the iterrupts. Either the whole block, or
 	 * one by one. */
 	if (sc->sc_intr_cap & DDI_INTR_FLAG_BLOCK) {
@@ -1092,22 +1125,6 @@ virtio_release_ints(struct virtio_softc *sc)
 		}
 	}
 
-	/* Unbind all vqs */
-	for (i = 0; i < sc->sc_nvqs; i++) {
-		ddi_put16(sc->sc_ioh,
-			(uint16_t *) (sc->sc_io_addr +
-				VIRTIO_CONFIG_QUEUE_SELECT), i);
-
-		ddi_put16(sc->sc_ioh,
-			(uint16_t *) (sc->sc_io_addr +
-				VIRTIO_CONFIG_QUEUE_VECTOR),
-				VIRTIO_MSI_NO_VECTOR);
-	}
-	/* And the config */
-	ddi_put16(sc->sc_ioh, (uint16_t *) (sc->sc_io_addr +
-			VIRTIO_CONFIG_CONFIG_VECTOR),
-			VIRTIO_MSI_NO_VECTOR);
-
 
 	for (i = 0; i < sc->sc_intr_num; i++) {
 		ddi_intr_remove_handler(sc->sc_intr_htable[i]);
@@ -1118,6 +1135,10 @@ virtio_release_ints(struct virtio_softc *sc)
 
 	kmem_free(sc->sc_intr_htable,
 		sizeof(ddi_intr_handle_t) * sc->sc_intr_num);
+
+
+	/* After disabling interrupts, the config offset is non-MSI. */
+	sc->sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
 }
 
 /*

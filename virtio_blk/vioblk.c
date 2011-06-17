@@ -978,6 +978,8 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	ddi_set_driver_private(devinfo, sc);
 
 	vsc = &sc->sc_virtio;
+	virtio_init(vsc);
+
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
 	vsc->sc_dev = devinfo;
@@ -1051,8 +1053,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		dev_err(devinfo, CE_WARN, "unable to map bar0: [%d]", ret);
 		goto exit_map;
 	}
-
-	sc->sc_virtio.sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
 
 	virtio_device_reset(&sc->sc_virtio);
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
