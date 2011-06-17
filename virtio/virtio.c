@@ -110,7 +110,6 @@ virtio_has_feature(struct virtio_softc *sc, uint32_t feature)
 	return (sc->sc_features & feature);
 }
 
-
 /*
  * Device configuration registers.
  */
@@ -700,8 +699,7 @@ static int virtio_register_msi(struct virtio_softc *sc,
 
 	/* Walk the handler table to get the number of handlers. */
 	for (handler_count = 0;
-		vq_handlers &&
-		vq_handlers[handler_count].vh_func;
+		vq_handlers && vq_handlers[handler_count].vh_func;
 		handler_count++)
 		;
 
@@ -894,13 +892,138 @@ out_nomsi:
 	return (ret);
 }
 
+struct virtio_handler_container {
+	int nhandlers;
+	struct virtio_int_handler config_handler;
+	struct virtio_int_handler vq_handlers[];
+};
+
+uint_t virtio_intx_dispatch(caddr_t arg1, caddr_t arg2)
+{
+	struct virtio_softc *sc = (void *) arg1;
+	struct virtio_handler_container *vhc = (void *) arg2;
+	uint8_t isr_status;
+	int i;
+
+	isr_status = ddi_get8(sc->sc_ioh, (uint8_t *) (sc->sc_io_addr +
+				VIRTIO_CONFIG_ISR_STATUS));
+
+	if (!isr_status)
+		return (DDI_INTR_UNCLAIMED);
+
+	if ((isr_status & VIRTIO_CONFIG_ISR_CONFIG_CHANGE) &&
+			vhc->config_handler.vh_func) {
+
+		vhc->config_handler.vh_func((void *) sc,
+			vhc->config_handler.vh_priv);
+	}
+
+	/* Notify all handlers */
+	for (i = 0; i < vhc->nhandlers; i++) {
+		vhc->vq_handlers[i].vh_func((void *) sc,
+			vhc->vq_handlers[i].vh_priv);
+	}
+
+	return DDI_INTR_CLAIMED;
+}
+
 static int
 virtio_register_intx(struct virtio_softc *sc,
 		struct virtio_int_handler *config_handler,
 		struct virtio_int_handler vq_handlers[])
 {
-	panic("Not implemented");
+	int vq_handler_count;
+	int config_handler_count = 0;
+	int actual;
+	struct virtio_handler_container *vhc;
+	int ret = DDI_FAILURE;
+
+	/* Walk the handler table to get the number of handlers. */
+	for (vq_handler_count = 0;
+		vq_handlers && vq_handlers[vq_handler_count].vh_func;
+		vq_handler_count++)
+		;
+
+	/* +1 if there is a config change handler. */
+	if (config_handler)
+		config_handler_count = 1;
+
+	vhc = kmem_alloc(sizeof(struct virtio_int_handler) *
+			(vq_handler_count + config_handler_count),
+			KM_SLEEP);
+	if (!vhc) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate memory "
+				"for the handler container");
+		goto out;
+	}
+
+	vhc->nhandlers = vq_handler_count;
+	memcpy(vhc->vq_handlers, vq_handlers,
+		sizeof (struct virtio_int_handler) * vq_handler_count);
+
+	if (config_handler) {
+		memcpy(&vhc->config_handler, config_handler,
+			sizeof(struct virtio_int_handler));
+	}
+
+	sc->sc_intr_htable = kmem_zalloc(sizeof(ddi_intr_handle_t),
+					KM_SLEEP);
+	if (!sc->sc_intr_htable) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to allocate the interrupt handle");
+		goto out_handle;
+	}
+
+	ret = ddi_intr_alloc(sc->sc_dev, sc->sc_intr_htable,
+			DDI_INTR_TYPE_FIXED, 0, 1, &actual,
+			DDI_INTR_ALLOC_NORMAL);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate interrupt: %d",
+				ret);
+		goto out_int_alloc;
+	}
+
+	/* Can't happen, we requested 1, and ddi_intr_alloc did not fail. */
+	ASSERT (actual == 1);
+	sc->sc_intr_num = 1;
+
+	ret = ddi_intr_get_pri(sc->sc_intr_htable[0], &sc->sc_intr_prio);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "ddi_intr_get_pri failed");
+		goto out_prio;
+	}
+
+	ret = ddi_intr_add_handler(sc->sc_intr_htable[0],
+		virtio_intx_dispatch, sc, vhc);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN, "ddi_intr_add_handler failed");
+		goto out_add_handlers;
+	}
+
+	ret = ddi_intr_enable(sc->sc_intr_htable[0]);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to enable interrupt: %d", ret);
+
+		goto out_enable;
+	}
+
+	return (DDI_SUCCESS);
+
+out_enable:
+	ddi_intr_remove_handler(sc->sc_intr_htable[0]);
+out_add_handlers:
+out_prio:
+	ddi_intr_free(sc->sc_intr_htable[0]);
+out_int_alloc:
+	kmem_free(sc->sc_intr_htable, sizeof(ddi_intr_handle_t));
+out_handle:
+	kmem_free(vhc, sizeof(struct virtio_int_handler) *
+			(vq_handler_count + config_handler_count));
+out:
+	return (ret);
 }
+
 
 int
 virtio_register_ints(struct virtio_softc *sc,
@@ -925,12 +1048,17 @@ virtio_register_ints(struct virtio_softc *sc,
 			return (0);
 	}
 
-	/* Fall back to old-fashioned interrupts. Might just fail as well
-	   so the user would notice for sure. */
-	dev_err(sc->sc_dev, CE_WARN,
-		"Not using MSI, performance will suffer");
+	if (intr_types & DDI_INTR_TYPE_FIXED) {
+	    /* Fall back to old-fashioned interrupts. */
+	    dev_err(sc->sc_dev, CE_WARN,
+		    "Using legacy interrupts");
 
-	ret = virtio_register_intx(sc, config_handler, vq_handlers);
+	    return virtio_register_intx(sc, config_handler, vq_handlers);
+	}
+
+	dev_err(sc->sc_dev, CE_WARN,
+		"MSI failed and fixed interrupts not supported. Giving up.");
+	ret = DDI_FAILURE;
 
 out_inttype:
 	return (ret);
@@ -957,7 +1085,7 @@ virtio_release_ints(struct virtio_softc *sc)
 			ret = ddi_intr_disable(sc->sc_intr_htable[i]);
 			if (ret) {
 				dev_err(sc->sc_dev, CE_WARN,
-					"Failed to disable MSI %d, "
+					"Failed to disable interrupt %d, "
 					"won't be able to reuse", i);
 
 			}
