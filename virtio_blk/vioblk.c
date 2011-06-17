@@ -684,28 +684,39 @@ vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 static void
 vioblk_show_features(struct vioblk_softc *sc, uint32_t features)
 {
-	virtio_show_features(&sc->sc_virtio, features);
+	char buf[512];
+	char *bufp;
+	char *bufend = buf + sizeof(buf);
 
-	dev_err(sc->sc_dev, CE_NOTE, "Virtio Blk features:");
+	bufp = virtio_show_features(&sc->sc_virtio,
+			features, buf, sizeof(buf));
+
+
+	bufp += snprintf(bufp, bufend - bufp, "Vioblk ( ");
 
 	if (features & VIRTIO_BLK_F_BARRIER)
-		dev_err(sc->sc_dev, CE_NOTE, "BARRIER");
+		bufp += snprintf(bufp, bufend - bufp, "BARRIER ");
 	if (features & VIRTIO_BLK_F_SIZE_MAX)
-		dev_err(sc->sc_dev, CE_NOTE, "SIZE_MAX");
+		bufp += snprintf(bufp, bufend - bufp, "SIZE_MAX ");
 	if (features & VIRTIO_BLK_F_SEG_MAX)
-		dev_err(sc->sc_dev, CE_NOTE, "SEG_MAX");
+		bufp += snprintf(bufp, bufend - bufp, "SEG_MAX ");
 	if (features & VIRTIO_BLK_F_GEOMETRY)
-		dev_err(sc->sc_dev, CE_NOTE, "GEOMETRY");
+		bufp += snprintf(bufp, bufend - bufp, "GEOMETRY ");
 	if (features & VIRTIO_BLK_F_RO)
-		dev_err(sc->sc_dev, CE_NOTE, "RO");
+		bufp += snprintf(bufp, bufend - bufp, "RO ");
 	if (features & VIRTIO_BLK_F_BLK_SIZE)
-		dev_err(sc->sc_dev, CE_NOTE, "BLK_SIZE");
+		bufp += snprintf(bufp, bufend - bufp, "BLK_SIZE ");
 	if (features & VIRTIO_BLK_F_SCSI)
-		dev_err(sc->sc_dev, CE_NOTE, "SCSI");
+		bufp += snprintf(bufp, bufend - bufp, "SCSI ");
 	if (features & VIRTIO_BLK_F_FLUSH)
-		dev_err(sc->sc_dev, CE_NOTE, "FLUSH");
+		bufp += snprintf(bufp, bufend - bufp, "FLUSH ");
 	if (features & VIRTIO_BLK_F_SECTOR_MAX)
-		dev_err(sc->sc_dev, CE_NOTE, "SECTOR_MAX");
+		bufp += snprintf(bufp, bufend - bufp, "SECTOR_MAX ");
+
+	bufp += snprintf(bufp, bufend - bufp, ")");
+	*bufp = '\0';
+
+	dev_err(sc->sc_dev, CE_NOTE, "%s", buf);
 }
 
 static int

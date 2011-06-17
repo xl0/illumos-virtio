@@ -1051,46 +1051,57 @@ vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 static void
 vioif_show_features(struct vioif_softc *sc, uint32_t features)
 {
-	virtio_show_features(&sc->sc_virtio, features);
+	char buf[512];
+	char *bufp;
+	char *bufend = buf + sizeof(buf);
 
-	dev_err(sc->sc_dev, CE_NOTE, "Virtio Net features:");
+	bufp = virtio_show_features(&sc->sc_virtio,
+			features, buf, sizeof(buf));
+
+
+	bufp += snprintf(bufp, bufend - bufp, "Vioif ( ");
 
 	if (features & VIRTIO_NET_F_CSUM)
-		dev_err(sc->sc_dev, CE_NOTE, "CSUM");
+		bufp += snprintf(bufp, bufend - bufp, "CSUM ");
 	if (features & VIRTIO_NET_F_GUEST_CSUM)
-		dev_err(sc->sc_dev, CE_NOTE, "GUEST_CSUM");
+		bufp += snprintf(bufp, bufend - bufp, "GUEST_CSUM ");
 	if (features & VIRTIO_NET_F_MAC)
-		dev_err(sc->sc_dev, CE_NOTE, "MAC");
+		bufp += snprintf(bufp, bufend - bufp, "MAC ");
 	if (features & VIRTIO_NET_F_GSO)
-		dev_err(sc->sc_dev, CE_NOTE, "GSO");
+		bufp += snprintf(bufp, bufend - bufp, "GSO ");
 	if (features & VIRTIO_NET_F_GUEST_TSO4)
-		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO4");
+		bufp += snprintf(bufp, bufend - bufp, "GUEST_TSO4 ");
 	if (features & VIRTIO_NET_F_GUEST_TSO6)
-		dev_err(sc->sc_dev, CE_NOTE, "GUEST_TSO6");
+		bufp += snprintf(bufp, bufend - bufp, "GUEST_TSO6 ");
 	if (features & VIRTIO_NET_F_GUEST_ECN)
-		dev_err(sc->sc_dev, CE_NOTE, "GUEST_ECN");
+		bufp += snprintf(bufp, bufend - bufp, "GUEST_ECN ");
 	if (features & VIRTIO_NET_F_GUEST_UFO)
-		dev_err(sc->sc_dev, CE_NOTE, "GUEST_UFO");
+		bufp += snprintf(bufp, bufend - bufp, "GUEST_UFO ");
 	if (features & VIRTIO_NET_F_HOST_TSO4)
-		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO4");
+		bufp += snprintf(bufp, bufend - bufp, "HOST_TSO4 ");
 	if (features & VIRTIO_NET_F_HOST_TSO6)
-		dev_err(sc->sc_dev, CE_NOTE, "HOST_TSO6");
+		bufp += snprintf(bufp, bufend - bufp, "HOST_TSO6 ");
 	if (features & VIRTIO_NET_F_HOST_ECN)
-		dev_err(sc->sc_dev, CE_NOTE, "HOST_ECN");
+		bufp += snprintf(bufp, bufend - bufp, "HOST_ECN ");
 	if (features & VIRTIO_NET_F_HOST_UFO)
-		dev_err(sc->sc_dev, CE_NOTE, "HOST_UFO");
+		bufp += snprintf(bufp, bufend - bufp, "HOST_UFO ");
 	if (features & VIRTIO_NET_F_MRG_RXBUF)
-		dev_err(sc->sc_dev, CE_NOTE, "MRG_RXBUF");
+		bufp += snprintf(bufp, bufend - bufp, "MRG_RXBUF ");
 	if (features & VIRTIO_NET_F_STATUS)
-		dev_err(sc->sc_dev, CE_NOTE, "STATUS");
+		bufp += snprintf(bufp, bufend - bufp, "STATUS ");
 	if (features & VIRTIO_NET_F_CTRL_VQ)
-		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VQ");
+		bufp += snprintf(bufp, bufend - bufp, "CTRL_VQ ");
 	if (features & VIRTIO_NET_F_CTRL_RX)
-		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX");
+		bufp += snprintf(bufp, bufend - bufp, "CTRL_RX ");
 	if (features & VIRTIO_NET_F_CTRL_VLAN)
-		dev_err(sc->sc_dev, CE_NOTE, "CTRL_VLAN");
+		bufp += snprintf(bufp, bufend - bufp, "CTRL_VLAN ");
 	if (features & VIRTIO_NET_F_CTRL_RX_EXTRA)
-		dev_err(sc->sc_dev, CE_NOTE, "CTRL_RX_EXTRA");
+		bufp += snprintf(bufp, bufend - bufp, "CTRL_RX_EXTRA ");
+
+	bufp += snprintf(bufp, bufend - bufp, ")");
+	*bufp = '\0';
+
+	dev_err(sc->sc_dev, CE_NOTE, "%s", buf);
 }
 
 /*

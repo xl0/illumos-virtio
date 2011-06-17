@@ -102,12 +102,20 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 	return (host_features);
 }
 
-void
-virtio_show_features(struct virtio_softc *sc, uint32_t features)
+char *
+virtio_show_features(struct virtio_softc *sc, uint32_t features,
+		char *buf, size_t len)
 {
-	dev_err(sc->sc_dev, CE_NOTE, "Genetic Virtio features:");
+
+	char *bufend = buf + len;
+
+	buf += snprintf(buf, bufend - buf, "Generic ( ");
 	if (features & VIRTIO_F_RING_INDIRECT_DESC)
-		dev_err(sc->sc_dev, CE_NOTE, "INDIRECT_DESC");
+		buf += snprintf(buf, bufend - buf, "INDIRECT_DESC ");
+
+	buf += snprintf(buf, bufend - buf, ") ");
+
+	return buf;
 }
 
 boolean_t

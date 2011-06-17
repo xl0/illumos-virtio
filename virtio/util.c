@@ -13,7 +13,7 @@ void
 dev_err(dev_info_t *dip, int ce, char *fmt, ...)
 {
 	va_list ap;
-	char buf[256];
+	char buf[512];
 
 	ASSERT(dip != NULL);
 

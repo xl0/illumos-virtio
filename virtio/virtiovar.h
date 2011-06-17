@@ -179,7 +179,8 @@ struct virtio_int_handler {
 
 void virtio_init(struct virtio_softc *sc);
 uint32_t virtio_negotiate_features(struct virtio_softc*, uint32_t);
-void virtio_show_features(struct virtio_softc *sc, uint32_t features);
+char *virtio_show_features(struct virtio_softc *sc, uint32_t features,
+	char *buffer, size_t len);
 boolean_t virtio_has_feature(struct virtio_softc *sc, uint32_t feature);
 void virtio_set_status(struct virtio_softc *sc, int );
 #define virtio_device_reset(sc)	virtio_set_status((sc), 0)
