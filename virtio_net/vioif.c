@@ -1440,10 +1440,11 @@ vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 
 	mac_free(sc->sc_macp);
 
-	virtio_device_reset(&sc->sc_virtio);
 	vioif_free_mems(sc);
 	virtio_free_vq(sc->sc_rx_vq);
 	virtio_free_vq(sc->sc_tx_vq);
+
+	virtio_device_reset(&sc->sc_virtio);
 
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 

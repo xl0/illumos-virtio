@@ -1218,6 +1218,7 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	virtio_release_ints(&sc->sc_virtio);
 	vioblk_free_reqs(sc);
 	virtio_free_vq(sc->sc_vq);
+	virtio_device_reset(&sc->sc_virtio);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 	kstat_delete(sc->sc_intrstat);
 	kmem_free(sc, sizeof (struct vioblk_softc));

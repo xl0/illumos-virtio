@@ -421,13 +421,12 @@ virtio_free_vq(struct virtqueue *vq)
 {
 	struct virtio_softc *sc = vq->vq_owner;
 
-	/* device must be already deactivated */
 	/* tell device that there's no virtqueue any longer */
 	ddi_put16(sc->sc_ioh,
 		(uint16_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SELECT),
 		vq->vq_index);
 	ddi_put32(sc->sc_ioh,
-		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_SIZE), 0);
+		(uint32_t *) (sc->sc_io_addr + VIRTIO_CONFIG_QUEUE_ADDRESS), 0);
 
 	kmem_free(vq->vq_entries, sizeof(struct vq_entry) * vq->vq_num);
 
