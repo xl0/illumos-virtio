@@ -730,7 +730,8 @@ vioblk_dev_features(struct vioblk_softc *sc)
 	      VIRTIO_BLK_F_BLK_SIZE |
 	      VIRTIO_BLK_F_FLUSH |
 	      VIRTIO_BLK_F_SEG_MAX |
-	      VIRTIO_BLK_F_SIZE_MAX));
+	      VIRTIO_BLK_F_SIZE_MAX |
+	      VIRTIO_F_RING_INDIRECT_DESC));
 
 	if (!(sc->sc_virtio.sc_features & VIRTIO_BLK_F_BLK_SIZE)) {
 		dev_err(sc->sc_dev, CE_NOTE, "Error while negotiating host features");
