@@ -858,7 +858,7 @@ vioblk_alloc_reqs(struct vioblk_softc *sc)
 		struct vioblk_req *req = &sc->sc_reqs[i];
 
 		if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
-		    DDI_DMA_DONTWAIT, 0, &req->bd_dmah)) {
+		    DDI_DMA_SLEEP, 0, &req->bd_dmah)) {
 
 			dev_err(sc->sc_dev, CE_WARN,
 				"Can't allocate bd dma handle for req "
