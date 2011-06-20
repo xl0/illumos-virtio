@@ -1297,7 +1297,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	vsc->sc_nvqs = vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ) ? 3 : 2;
 
-	sc->sc_rxbuf_cache = kmem_cache_create("vioif-rx",
+	sc->sc_rxbuf_cache = kmem_cache_create("vioif_rx",
 		sizeof (struct vioif_buf), 0,
 		vioif_rx_construct, vioif_rx_descruct,
 		NULL, sc, NULL, KM_SLEEP);
