@@ -217,31 +217,31 @@ ddi_device_acc_attr_t vioblk_attr = {
 };
 
 static ddi_dma_attr_t vioblk_req_dma_attr = {
-	DMA_ATTR_V0,           /* Version number */
-	0,	               /* low address */
-	0xFFFFFFFFFFFFFFFFull, /* high address */
-	0x00000000FFFFFFFFull, /* counter register max */
-	VIRTIO_PAGE_SIZE,      /* page alignment */
-	0x1c,                  /* burst sizes: 1 - 32 */
-	0x1,                   /* minimum transfer size */
-	0xFF,                  /* max transfer size */
-	0xFFFFFFFFFFFFFFFFull, /* address register max */
-	1,	               /* dma_attr_sgllen	*/
-	1,                     /* device operates on bytes */
-	DDI_DMA_FORCE_PHYSICAL /* dma_attr_flags */
+	DMA_ATTR_V0,			/* dma_attr version	*/
+	0,				/* dma_attr_addr_lo	*/
+	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_addr_hi	*/
+	0x00000000FFFFFFFFull,		/* dma_attr_count_max	*/
+	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
+	0x1,				/* dma_attr_burstsizes	*/
+	0x1,				/* dma_attr_minxfer	*/
+	0xFFFFFFFF,			/* dma_attr_maxxfer	*/
+	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
+	1,				/* dma_attr_sgllen	*/
+	1,				/* dma_attr_granular	*/
+	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags       */  
 };
 
 static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	DMA_ATTR_V0,			/* dma_attr version	*/
-	0x0000000000000000ull,		/* dma_attr_addr_lo	*/
+	0,				/* dma_attr_addr_lo	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_addr_hi	*/
 	0x00000000FFFFFFFFull,		/* dma_attr_count_max	*/
 	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
-	0x1c,				/* dma_attr_burstsizes	*/
-	0x1,				/* dma_attr_minxfer	*/
+	1,				/* dma_attr_burstsizes	*/
+	1,				/* dma_attr_minxfer	*/
 	0xFFFFFFFF,			/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
-	0x7FFFFFFF,			/* dma_attr_sgllen	*/
+	-1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
 	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags       */
 };
@@ -1107,7 +1107,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		sc->sc_seg_max = virtio_read_device_config_4(&sc->sc_virtio,
 		    VIRTIO_BLK_CONFIG_SEG_MAX);
 		if(sc->sc_seg_max) {
-			vioblk_bd_dma_attr.dma_attr_seg = sc->sc_seg_max;
+			vioblk_bd_dma_attr.dma_attr_sgllen = sc->sc_seg_max;
 		}
 	}
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SIZE_MAX) {
@@ -1130,7 +1130,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		"dma_maxxfer %ld dma_segs %ld",
 		sc->sc_nblks, sc->sc_blk_size, sc->sc_maxxfer,
 		vioblk_bd_dma_attr.dma_attr_maxxfer,
-		vioblk_bd_dma_attr.dma_attr_seg);
+		vioblk_bd_dma_attr.dma_attr_sgllen);
 
 	sc->sc_vq = virtio_alloc_vq(&sc->sc_virtio, 0, 0,
 				    MAXINDIRECT, "I/O request");
