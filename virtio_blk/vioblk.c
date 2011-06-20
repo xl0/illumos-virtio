@@ -176,7 +176,6 @@ static bd_ops_t vioblk_ops = {
 
 static int vioblk_attach(dev_info_t *, ddi_attach_cmd_t);
 static int vioblk_detach(dev_info_t *, ddi_detach_cmd_t);
-static int vioblk_quiesce(dev_info_t *);
 
 static struct dev_ops vioblk_stream_ops = {
 	DEVO_REV,
@@ -190,7 +189,7 @@ static struct dev_ops vioblk_stream_ops = {
 	NULL,		/* cb_ops */
 	NULL,		/* bus_ops */
 	NULL,		/* power */
-	vioblk_quiesce	/* quiesce */
+	ddi_quiesce_not_supported /* quiesce */
 };
 
 /* Standard Module linkage initialization for a Streams driver */
@@ -1225,12 +1224,6 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	kmem_free(sc, sizeof (struct vioblk_softc));
 
 	return (DDI_SUCCESS);
-}
-
-int
-vioblk_quiesce(dev_info_t *dip)
-{
-	return (DDI_FAILURE);
 }
 
 int
