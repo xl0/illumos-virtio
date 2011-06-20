@@ -102,11 +102,11 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 	return (host_features);
 }
 
-char *
+size_t
 virtio_show_features(struct virtio_softc *sc, uint32_t features,
 		char *buf, size_t len)
 {
-
+	char *orig_buf = buf;
 	char *bufend = buf + len;
 
 	buf += snprintf(buf, bufend - buf, "Generic ( ");
@@ -115,7 +115,7 @@ virtio_show_features(struct virtio_softc *sc, uint32_t features,
 
 	buf += snprintf(buf, bufend - buf, ") ");
 
-	return buf;
+	return buf - orig_buf;
 }
 
 boolean_t

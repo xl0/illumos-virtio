@@ -1049,15 +1049,17 @@ vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 }
 
 static void
-vioif_show_features(struct vioif_softc *sc, uint32_t features)
+vioif_show_features(struct vioif_softc *sc, const char *prefix,
+		uint32_t features)
 {
 	char buf[512];
-	char *bufp;
+	char *bufp = buf;
 	char *bufend = buf + sizeof(buf);
 
-	bufp = virtio_show_features(&sc->sc_virtio,
-			features, buf, sizeof(buf));
+	bufp += snprintf(bufp, bufend - bufp, prefix);
 
+	bufp += virtio_show_features(&sc->sc_virtio,
+			features, bufp, bufend - bufp);
 
 	bufp += snprintf(bufp, bufend - bufp, "Vioif ( ");
 
@@ -1113,7 +1115,6 @@ vioif_dev_features(struct vioif_softc *sc)
 {
 	uint32_t host_features;
 
-
 	host_features = virtio_negotiate_features(&sc->sc_virtio,
 			VIRTIO_NET_F_CSUM |
 			VIRTIO_NET_F_MAC |
@@ -1121,12 +1122,8 @@ vioif_dev_features(struct vioif_softc *sc)
 			VIRTIO_NET_F_MRG_RXBUF |
 			VIRTIO_F_NOTIFY_ON_EMPTY);
 
-	dev_err(sc->sc_dev, CE_NOTE, "Host features:");
-	vioif_show_features(sc, host_features);
-
-	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
-	vioif_show_features(sc, sc->sc_virtio.sc_features);
-
+	vioif_show_features(sc, "Host features: ", host_features);
+	vioif_show_features(sc, "Negotiated features: ", sc->sc_virtio.sc_features);
 
 	sc->sc_rxbuf_size = VIOIF_RX_SIZE;
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MRG_RXBUF) {

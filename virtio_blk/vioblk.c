@@ -682,14 +682,17 @@ vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 }
 
 static void
-vioblk_show_features(struct vioblk_softc *sc, uint32_t features)
+vioblk_show_features(struct vioblk_softc *sc, const char *prefix,
+		uint32_t features)
 {
 	char buf[512];
-	char *bufp;
+	char *bufp = buf;
 	char *bufend = buf + sizeof(buf);
 
-	bufp = virtio_show_features(&sc->sc_virtio,
-			features, buf, sizeof(buf));
+	bufp += snprintf(bufp, bufend - bufp, prefix);
+
+	bufp += virtio_show_features(&sc->sc_virtio,
+			features, bufp, bufend - bufp);
 
 
 	bufp += snprintf(bufp, bufend - bufp, "Vioblk ( ");
@@ -738,11 +741,8 @@ vioblk_dev_features(struct vioblk_softc *sc)
 		return (DDI_FAILURE);
 	}
 
-	dev_err(sc->sc_dev, CE_NOTE, "Host features:");
-	vioblk_show_features(sc, host_features);
-
-	dev_err(sc->sc_dev, CE_NOTE, "Negotiated features:");
-	vioblk_show_features(sc, sc->sc_virtio.sc_features);
+	vioblk_show_features(sc, "Host features: ", host_features);
+	vioblk_show_features(sc, "Negotiated features: ", sc->sc_virtio.sc_features);
 
 	return (DDI_SUCCESS);
 }
