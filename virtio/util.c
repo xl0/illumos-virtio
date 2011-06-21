@@ -6,8 +6,8 @@
 #include <sys/sunndi.h>
 #include "util.h"
 
-/* 
- * Add to ddi? 
+/*
+ * Add to ddi?
  */
 void
 dev_err(dev_info_t *dip, int ce, char *fmt, ...)
@@ -25,7 +25,8 @@ dev_err(dev_info_t *dip, int ce, char *fmt, ...)
 		ddi_get_instance(dip), buf);
 }
 
-void dev_panic(dev_info_t *dip, char *fmt, ...)
+void
+dev_panic(dev_info_t *dip, char *fmt, ...)
 {
 	va_list ap;
 	char buf[256];
@@ -40,7 +41,8 @@ void dev_panic(dev_info_t *dip, char *fmt, ...)
 		ddi_get_instance(dip), buf);
 }
 
-void hex_dump(char *prefix, void *addr, int len)
+void
+hex_dump(char *prefix, void *addr, int len)
 {
 	unsigned char *base = addr;
 	char buff[256], *bptr;
@@ -55,11 +57,13 @@ void hex_dump(char *prefix, void *addr, int len)
 		i++;
 
 		if (!(i % 16)) {
-			cmn_err(CE_NOTE, "%s: 0x%p: %s", prefix, base + i - 16, buff);
+			cmn_err(CE_NOTE, "%s: 0x%p: %s",
+				prefix, base + i - 16, buff);
 			bptr = buff;
 		}
 	}
 
 	if (i % 16)
-		cmn_err(CE_NOTE, "%s: 0x%p: %s", prefix, base + i - (i % 16), buff);
+		cmn_err(CE_NOTE, "%s: 0x%p: %s",
+			prefix, base + i - (i % 16), buff);
 }

@@ -67,8 +67,8 @@
 #include <sys/ethernet.h>
 
 /* Please export sys/vlan.h as part of ddi */
-//#include <sys/vlan.h>
-#define VLAN_TAGSZ 4
+// #include <sys/vlan.h>
+#define	VLAN_TAGSZ 4
 
 #include <sys/dlpi.h>
 #include <sys/taskq.h>
@@ -91,31 +91,31 @@
 #include "virtioreg.h"
 
 /* Configuration registers */
-#define VIRTIO_NET_CONFIG_MAC		0 /* 8bit x 6byte */
-#define VIRTIO_NET_CONFIG_STATUS	6 /* 16bit */
+#define	VIRTIO_NET_CONFIG_MAC		0 /* 8bit x 6byte */
+#define	VIRTIO_NET_CONFIG_STATUS	6 /* 16bit */
 
 /* Feature bits */
-#define VIRTIO_NET_F_CSUM       (1 << 0) /* Host handles pkts w/ partial csum */
-#define VIRTIO_NET_F_GUEST_CSUM (1 << 1) /* Guest handles pkts w/ partial csum */
-#define VIRTIO_NET_F_MAC        (1 << 5) /* Host has given MAC address. */
-#define VIRTIO_NET_F_GSO        (1 << 6) /* Host handles pkts w/ any GSO type */
-#define VIRTIO_NET_F_GUEST_TSO4 (1 << 7) /* Guest can handle TSOv4 in. */
-#define VIRTIO_NET_F_GUEST_TSO6 (1 << 8) /* Guest can handle TSOv6 in. */
-#define VIRTIO_NET_F_GUEST_ECN  (1 << 9) /* Guest can handle TSO[6] w/ ECN in. */
-#define VIRTIO_NET_F_GUEST_UFO  (1 << 10) /* Guest can handle UFO in. */
-#define VIRTIO_NET_F_HOST_TSO4  (1 << 11) /* Host can handle TSOv4 in. */
-#define VIRTIO_NET_F_HOST_TSO6  (1 << 12) /* Host can handle TSOv6 in. */
-#define VIRTIO_NET_F_HOST_ECN   (1 << 13) /* Host can handle TSO[6] w/ ECN in. */
-#define VIRTIO_NET_F_HOST_UFO   (1 << 14) /* Host can handle UFO in. */
-#define VIRTIO_NET_F_MRG_RXBUF  (1 << 15) /* Host can merge receive buffers. */
-#define VIRTIO_NET_F_STATUS     (1 << 16) /* virtio_net_config.status available */
-#define VIRTIO_NET_F_CTRL_VQ    (1 << 17) /* Control channel available */
-#define VIRTIO_NET_F_CTRL_RX    (1 << 18) /* Control channel RX mode support */
-#define VIRTIO_NET_F_CTRL_VLAN  (1 << 19)       /* Control channel VLAN filtering */
-#define VIRTIO_NET_F_CTRL_RX_EXTRA (1 << 20) /* Extra RX mode control support */
+#define	VIRTIO_NET_F_CSUM	(1 << 0) /* Host handles pkts w/ partial csum */
+#define	VIRTIO_NET_F_GUEST_CSUM	(1 << 1) /* Guest handles pkts w/ part csum */
+#define	VIRTIO_NET_F_MAC	(1 << 5) /* Host has given MAC address. */
+#define	VIRTIO_NET_F_GSO	(1 << 6) /* Host handles pkts w/ any GSO type */
+#define	VIRTIO_NET_F_GUEST_TSO4	(1 << 7) /* Guest can handle TSOv4 in. */
+#define	VIRTIO_NET_F_GUEST_TSO6	(1 << 8) /* Guest can handle TSOv6 in. */
+#define	VIRTIO_NET_F_GUEST_ECN	(1 << 9) /* Guest can handle TSO[6] w/ ECN in */
+#define	VIRTIO_NET_F_GUEST_UFO	(1 << 10) /* Guest can handle UFO in. */
+#define	VIRTIO_NET_F_HOST_TSO4	(1 << 11) /* Host can handle TSOv4 in. */
+#define	VIRTIO_NET_F_HOST_TSO6	(1 << 12) /* Host can handle TSOv6 in. */
+#define	VIRTIO_NET_F_HOST_ECN	(1 << 13) /* Host can handle TSO[6] w/ ECN in */
+#define	VIRTIO_NET_F_HOST_UFO	(1 << 14) /* Host can handle UFO in. */
+#define	VIRTIO_NET_F_MRG_RXBUF	(1 << 15) /* Host can merge receive buffers. */
+#define	VIRTIO_NET_F_STATUS	(1 << 16) /* Config.status available */
+#define	VIRTIO_NET_F_CTRL_VQ	(1 << 17) /* Control channel available */
+#define	VIRTIO_NET_F_CTRL_RX	(1 << 18) /* Control channel RX mode support */
+#define	VIRTIO_NET_F_CTRL_VLAN	(1 << 19) /* Control channel VLAN filtering */
+#define	VIRTIO_NET_F_CTRL_RX_EXTRA (1 << 20) /* Extra RX mode control support */
 
 /* Status */
-#define VIRTIO_NET_S_LINK_UP	1
+#define	VIRTIO_NET_S_LINK_UP	1
 
 /* Packet header structure */
 struct virtio_net_hdr {
@@ -133,14 +133,14 @@ struct virtio_net_hdr_mrg {
 	uint16_t num_buffers;
 };
 
-#define VIRTIO_NET_HDR_F_NEEDS_CSUM	1 /* flags */
-#define VIRTIO_NET_HDR_GSO_NONE		0 /* gso_type */
-#define VIRTIO_NET_HDR_GSO_TCPV4	1 /* gso_type */
-#define VIRTIO_NET_HDR_GSO_UDP		3 /* gso_type */
-#define VIRTIO_NET_HDR_GSO_TCPV6	4 /* gso_type */
-#define VIRTIO_NET_HDR_GSO_ECN		0x80 /* gso_type, |'ed */
+#define	VIRTIO_NET_HDR_F_NEEDS_CSUM	1 /* flags */
+#define	VIRTIO_NET_HDR_GSO_NONE		0 /* gso_type */
+#define	VIRTIO_NET_HDR_GSO_TCPV4	1 /* gso_type */
+#define	VIRTIO_NET_HDR_GSO_UDP		3 /* gso_type */
+#define	VIRTIO_NET_HDR_GSO_TCPV6	4 /* gso_type */
+#define	VIRTIO_NET_HDR_GSO_ECN		0x80 /* gso_type, |'ed */
 
-#define VIRTIO_NET_MAX_GSO_LEN		(65536+ETHER_HDR_LEN)
+#define	VIRTIO_NET_MAX_GSO_LEN		(65536+ETHER_HDR_LEN)
 
 /* Control virtqueue */
 struct virtio_net_ctrl_cmd {
@@ -148,16 +148,16 @@ struct virtio_net_ctrl_cmd {
 	uint8_t	command;
 } __packed;
 
-#define VIRTIO_NET_CTRL_RX		0
-#define VIRTIO_NET_CTRL_RX_PROMISC	0
-#define VIRTIO_NET_CTRL_RX_ALLMULTI	1
+#define	VIRTIO_NET_CTRL_RX		0
+#define	VIRTIO_NET_CTRL_RX_PROMISC	0
+#define	VIRTIO_NET_CTRL_RX_ALLMULTI	1
 
-#define VIRTIO_NET_CTRL_MAC		1
-#define VIRTIO_NET_CTRL_MAC_TABLE_SET	0
+#define	VIRTIO_NET_CTRL_MAC		1
+#define	VIRTIO_NET_CTRL_MAC_TABLE_SET	0
 
-#define VIRTIO_NET_CTRL_VLAN		2
-#define VIRTIO_NET_CTRL_VLAN_ADD	0
-#define VIRTIO_NET_CTRL_VLAN_DEL	1
+#define	VIRTIO_NET_CTRL_VLAN		2
+#define	VIRTIO_NET_CTRL_VLAN_ADD	0
+#define	VIRTIO_NET_CTRL_VLAN_DEL	1
 
 struct virtio_net_ctrl_status {
 	uint8_t	ack;
@@ -251,31 +251,33 @@ struct vioif_softc {
 	/* Tx bufs - virtio_net_hdr + a copy of the packet. */
 	struct vioif_buf	*sc_txbufs;
 
-	kstat_t                 *sc_intrstat;
+	kstat_t			*sc_intrstat;
 	kmem_cache_t		*sc_rxbuf_cache;
 
 	ulong_t			sc_rxloan;
 	unsigned int		sc_rxcopy_thresh;
 };
 
-#define ETHERVLANMTU    (ETHERMAX + 4)
+#define	ETHERVLANMTU    (ETHERMAX + 4)
 
-#define DEFAULT_MTU 	ETHERMTU
-#define MAX_MTU 	65535
+#define	DEFAULT_MTU 	ETHERMTU
+#define	MAX_MTU 	65535
 
-/* We win a bit on header alignment, but the host wins a lot
- * more on moving aligned buffers! Might need more thought. */
-#define VIOIF_IP_ALIGN 0
+/*
+ * We win a bit on header alignment, but the host wins a lot
+ * more on moving aligned buffers! Might need more thought.
+ */
+#define	VIOIF_IP_ALIGN 0
 
-#define VIOIF_TX_SIZE 2048
+#define	VIOIF_TX_SIZE 2048
 
 /* Same for now. */
-#define VIOIF_RX_SIZE VIOIF_TX_SIZE
+#define	VIOIF_RX_SIZE VIOIF_TX_SIZE
 
 /* Native queue size for both rx an tx. */
-#define VIOIF_RX_QLEN 0
-#define VIOIF_TX_QLEN 0
-#define VIOIF_CTRL_QLEN 0
+#define	VIOIF_RX_QLEN 0
+#define	VIOIF_TX_QLEN 0
+#define	VIOIF_CTRL_QLEN 0
 
 
 
@@ -300,18 +302,18 @@ vioif_link_state(struct vioif_softc *sc)
 }
 
 static ddi_dma_attr_t vioif_buf_dma_attr = {
-	DMA_ATTR_V0,   /* Version number */
-	0,	       /* low address */
-	0xFFFFFFFF,    /* high address */
-	0xFFFFFFFF,    /* counter register max */
+	DMA_ATTR_V0,	/* Version number */
+	0,		/* low address */
+	0xFFFFFFFF,	/* high address */
+	0xFFFFFFFF,	/* counter register max */
 	VIRTIO_PAGE_SIZE, /* page alignment */
-	0x3F,          /* burst sizes: 1 - 32 */
-	0x1,           /* minimum transfer size */
-	0xFFFFFFFF,    /* max transfer size */
-	0xFFFFFFFF,    /* address register max */
-	1,             /* no scatter-gather */
-	1,             /* device operates on bytes */
-	0,             /* attr flag: set to 0 */
+	0x3F,		/* burst sizes: 1 - 32 */
+	0x1,		/* minimum transfer size */
+	0xFFFFFFFF,	/* max transfer size */
+	0xFFFFFFFF,	/* address register max */
+	1,		/* no scatter-gather */
+	1,		/* device operates on bytes */
+	0,		/* attr flag: set to 0 */
 };
 
 static ddi_device_acc_attr_t vioif_bufattr = {
@@ -416,7 +418,8 @@ vioif_free_mems(struct vioif_softc *sc)
 		ddi_dma_free_handle(&buf->b_dmah);
 	}
 
-	kmem_free(sc->sc_txbufs, sizeof(struct vioif_buf) * sc->sc_tx_vq->vq_num);
+	kmem_free(sc->sc_txbufs, sizeof (struct vioif_buf) *
+			sc->sc_tx_vq->vq_num);
 
 	for (i = 0; i < sc->sc_rx_vq->vq_num; i++) {
 		struct vioif_buf *buf = sc->sc_rxbufs[i];
@@ -424,7 +427,8 @@ vioif_free_mems(struct vioif_softc *sc)
 		if (buf)
 			kmem_cache_free(sc->sc_rxbuf_cache, buf);
 	}
-	kmem_free(sc->sc_rxbufs, sizeof(struct vioif_buf *) * sc->sc_rx_vq->vq_num);
+	kmem_free(sc->sc_rxbufs, sizeof (struct vioif_buf *) *
+			sc->sc_rx_vq->vq_num);
 }
 
 static int
@@ -438,7 +442,7 @@ vioif_alloc_mems(struct vioif_softc *sc)
 	txqsize = sc->sc_tx_vq->vq_num;
 	rxqsize = sc->sc_rx_vq->vq_num;
 
-	sc->sc_txbufs = kmem_zalloc(sizeof(struct vioif_buf) * txqsize,
+	sc->sc_txbufs = kmem_zalloc(sizeof (struct vioif_buf) * txqsize,
 				KM_SLEEP);
 	if (!sc->sc_txbufs) {
 		dev_err(sc->sc_dev, CE_WARN,
@@ -450,21 +454,23 @@ vioif_alloc_mems(struct vioif_softc *sc)
 	 * We don't allocate the rx vioif_buffs, just the pointers.
 	 * There might be more vioif_buffs loaned upstream
 	 */
-	sc->sc_rxbufs = kmem_zalloc(sizeof(struct vioif_buf *) * rxqsize, KM_SLEEP);
+	sc->sc_rxbufs = kmem_zalloc(sizeof (struct vioif_buf *) * rxqsize,
+					KM_SLEEP);
 	if (!sc->sc_rxbufs) {
 		dev_err(sc->sc_dev, CE_WARN,
 			"Failed to allocate the rx buffers pointer array");
 		goto exit_rxalloc;
 	}
 
-	for (i = 0 ; i < txqsize; i++) {
+	for (i = 0; i < txqsize; i++) {
 		struct vioif_buf *buf = &sc->sc_txbufs[i];
 
 		if (ddi_dma_alloc_handle(sc->sc_dev, &vioif_buf_dma_attr,
 			DDI_DMA_SLEEP, NULL, &buf->b_dmah)) {
 
 			dev_err(sc->sc_dev, CE_WARN,
-				"Can't allocate dma handle for tx buffer %d", i);
+				"Can't allocate dma handle for tx buffer %d",
+				i);
 			goto exit_tx;
 		}
 
@@ -481,7 +487,8 @@ vioif_alloc_mems(struct vioif_softc *sc)
 			len, DDI_DMA_WRITE | DDI_DMA_STREAMING, DDI_DMA_SLEEP,
 			NULL, &dmac, &nsegments)) {
 
-			dev_err(sc->sc_dev, CE_WARN, "Can't bind tx buffer %d", i);
+			dev_err(sc->sc_dev, CE_WARN,
+				"Can't bind tx buffer %d", i);
 			goto exit_tx;
 		}
 
@@ -507,7 +514,7 @@ exit_tx:
 	}
 
 exit_rxalloc:
-	kmem_free(sc->sc_txbufs, sizeof(struct vioif_buf) * txqsize);
+	kmem_free(sc->sc_txbufs, sizeof (struct vioif_buf) * txqsize);
 exit:
 	return (ENOMEM);
 }
@@ -562,10 +569,10 @@ static int vioif_add_rx_single(struct vioif_softc *sc, int kmflag)
 	}
 
 	virtio_ve_set(ve_hdr, buf->b_paddr,
-		sizeof(struct virtio_net_hdr), B_FALSE);
+		sizeof (struct virtio_net_hdr), B_FALSE);
 
-	virtio_ve_set(ve, buf->b_paddr + sizeof(struct virtio_net_hdr),
-		sc->sc_rxbuf_size - sizeof(struct virtio_net_hdr),
+	virtio_ve_set(ve, buf->b_paddr + sizeof (struct virtio_net_hdr),
+		sc->sc_rxbuf_size - sizeof (struct virtio_net_hdr),
 		B_FALSE);
 
 	ve_hdr->qe_next = ve;
@@ -660,17 +667,17 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		ASSERT(ve_hdr->qe_next);
 		ve = ve_hdr->qe_next;
 
-		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+		if (len < sizeof (struct virtio_net_hdr_mrg)) {
 			cmn_err(CE_WARN, "Rx: Chain too small: %ld",
-				len - sizeof(struct virtio_net_hdr_mrg));
+				len - sizeof (struct virtio_net_hdr_mrg));
 			virtio_free_chain(ve);
 			continue;
 		}
 
 		buf = sc->sc_rxbufs[ve_hdr->qe_index];
-		ddi_dma_sync(buf->b_dmah, 0, len , DDI_DMA_SYNC_FORCPU);
+		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
 
-		len -= sizeof(struct virtio_net_hdr);
+		len -= sizeof (struct virtio_net_hdr);
 
 		mp = allocb(len, 0);
 		if (!mp) {
@@ -679,7 +686,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 			break;
 		}
 
-		bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr),
+		bcopy((char *)buf->b_buf + sizeof (struct virtio_net_hdr),
 				mp->b_rptr, len);
 		mp->b_wptr = mp->b_rptr + len;
 
@@ -716,18 +723,20 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 		ASSERT(buf);
 
 
-		if (len < sizeof(struct virtio_net_hdr_mrg)) {
+		if (len < sizeof (struct virtio_net_hdr_mrg)) {
 			cmn_err(CE_WARN, "Rx: Cnain too small: %ld",
-				len - sizeof(struct virtio_net_hdr_mrg));
+				len - sizeof (struct virtio_net_hdr_mrg));
 			virtio_free_chain(ve);
 			continue;
 		}
 
 		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
-		len -= sizeof(struct virtio_net_hdr_mrg);
+		len -= sizeof (struct virtio_net_hdr_mrg);
 
-		/* We copy the small packets and reuse the buffers. For
-		 * bigger ones, we loan the buffers upstream. */
+		/*
+		 * We copy the small packets and reuse the buffers. For
+		 * bigger ones, we loan the buffers upstream.
+		 */
 		if (len < sc->sc_rxcopy_thresh) {
 			mp = allocb(len, 0);
 			if (!mp) {
@@ -736,14 +745,15 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 				break;
 			}
 
-			bcopy((char *)buf->b_buf + sizeof(struct virtio_net_hdr_mrg),
-					mp->b_rptr, len);
+			bcopy((char *)buf->b_buf +
+					sizeof (struct virtio_net_hdr_mrg),
+				mp->b_rptr, len);
 
 			mp->b_wptr = mp->b_rptr + len;
 
 		} else {
 			mp = desballoc((char *)buf->b_buf +
-					sizeof(struct virtio_net_hdr_mrg) +
+					sizeof (struct virtio_net_hdr_mrg) +
 					VIOIF_IP_ALIGN,
 					len, 0, &buf->b_frtn);
 
@@ -755,8 +765,10 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 			mp->b_wptr = mp->b_rptr + len;
 
 			atomic_inc_ulong(&sc->sc_rxloan);
-			/* Buffer loanded, we will have to allocte a new one
-			 * for this slot. */
+			/*
+			 * Buffer loanded, we will have to allocte a new one
+			 * for this slot.
+			 */
 			sc->sc_rxbufs[ve->qe_index] = NULL;
 		}
 
@@ -773,10 +785,10 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 static int vioif_process_rx(struct vioif_softc *sc)
 {
 	if (sc->sc_merge) {
-		return vioif_rx_merged(sc);
+		return (vioif_rx_merged(sc));
 	}
 
-	return vioif_rx_single(sc);
+	return (vioif_rx_single(sc));
 }
 
 static void vioif_reclaim_used_tx(struct vioif_softc *sc)
@@ -809,8 +821,8 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 	size_t msg_size = 0;
 	int hdr_len;
 
-	hdr_len = sc->sc_merge ? sizeof(struct virtio_net_hdr_mrg) :
-		sizeof(struct virtio_net_hdr);
+	hdr_len = sc->sc_merge ? sizeof (struct virtio_net_hdr_mrg) :
+		sizeof (struct virtio_net_hdr);
 
 	msg_size = msgsize(mb);
 	if (msg_size > MAX_MTU) {
@@ -821,13 +833,13 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 
 	ve_hdr = vq_alloc_entry(sc->sc_tx_vq);
 	if (!ve_hdr) {
-		/* Out of free descriptors - try later.*/
+		/* Out of free descriptors - try later. */
 		return (B_FALSE);
 	}
 	ve = vq_alloc_entry(sc->sc_tx_vq);
 	if (!ve) {
 		vq_free_entry(sc->sc_tx_vq, ve_hdr);
-		/* Out of free descriptors - try later.*/
+		/* Out of free descriptors - try later. */
 		return (B_FALSE);
 	}
 
@@ -929,14 +941,16 @@ vioif_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 
 			if (*new_mtu > MAX_MTU) {
 				dev_err(sc->sc_dev, CE_WARN,
-					"Requested mtu (%d) out of range", *new_mtu);
+					"Requested mtu (%d) out of range",
+					*new_mtu);
 				return (EINVAL);
 			}
 
 			err = mac_maxsdu_update(sc->sc_mac_handle, *new_mtu);
 			if (err) {
 				dev_err(sc->sc_dev, CE_WARN,
-					"Failed to set the requested mtu (%d)", *new_mtu);
+					"Failed to set the requested mtu (%d)",
+					*new_mtu);
 				return (err);
 			}
 
@@ -1033,7 +1047,8 @@ vioif_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 			"Subsystem ID does not match: %x, expected %x",
 			vendor, PCI_VENDOR_QUMRANET);
 		dev_err(devinfo, CE_NOTE,
-			"This is a virtio device, but not virtio-net, skipping");
+			"This is a virtio device, but not virtio-net, "
+			"skipping");
 
 		return (DDI_FAILURE);
 	}
@@ -1047,7 +1062,7 @@ vioif_show_features(struct vioif_softc *sc, const char *prefix,
 {
 	char buf[512];
 	char *bufp = buf;
-	char *bufend = buf + sizeof(buf);
+	char *bufend = buf + sizeof (buf);
 
 	bufp += snprintf(bufp, bufend - bufp, prefix);
 
@@ -1116,7 +1131,8 @@ vioif_dev_features(struct vioif_softc *sc)
 			VIRTIO_F_NOTIFY_ON_EMPTY);
 
 	vioif_show_features(sc, "Host features: ", host_features);
-	vioif_show_features(sc, "Negotiated features: ", sc->sc_virtio.sc_features);
+	vioif_show_features(sc, "Negotiated features: ",
+			sc->sc_virtio.sc_features);
 
 	sc->sc_rxbuf_size = VIOIF_RX_SIZE;
 	if (sc->sc_virtio.sc_features & VIRTIO_NET_F_MRG_RXBUF) {
@@ -1129,7 +1145,7 @@ vioif_dev_features(struct vioif_softc *sc)
 
 static int vioif_has_feature(struct vioif_softc *sc, uint32_t feature)
 {
-	return virtio_has_feature(&sc->sc_virtio, feature);
+	return (virtio_has_feature(&sc->sc_virtio, feature));
 }
 
 static void
@@ -1166,7 +1182,8 @@ vioif_get_mac(struct vioif_softc *sc)
 
 		vioif_set_mac(sc);
 
-		dev_err(sc->sc_dev, CE_NOTE, "Generated a random MAC address: %s",
+		dev_err(sc->sc_dev, CE_NOTE,
+			"Generated a random MAC address: %s",
 			ether_sprintf((struct ether_addr *) sc->sc_mac));
 	}
 }
@@ -1175,7 +1192,8 @@ vioif_get_mac(struct vioif_softc *sc)
 /*
  * Virtqueue interrupt handlers
  */
-uint_t vioif_rx_handler(caddr_t arg1, caddr_t arg2)
+uint_t
+vioif_rx_handler(caddr_t arg1, caddr_t arg2)
 {
 	struct virtio_softc *vsc = (void *) arg1;
 	struct vioif_softc *sc = container_of(vsc,
@@ -1185,17 +1203,18 @@ uint_t vioif_rx_handler(caddr_t arg1, caddr_t arg2)
 
 	vioif_populate_rx(sc, KM_NOSLEEP);
 
-	return DDI_INTR_CLAIMED;
+	return (DDI_INTR_CLAIMED);
 }
 
-uint_t vioif_tx_handler(caddr_t arg1, caddr_t arg2)
+uint_t
+vioif_tx_handler(caddr_t arg1, caddr_t arg2)
 {
 	struct virtio_softc *vsc = (void *)arg1;
 	struct vioif_softc *sc = container_of(vsc,
 			struct vioif_softc, sc_virtio);
 
 	vioif_reclaim_used_tx(sc);
-	return DDI_INTR_CLAIMED;
+	return (DDI_INTR_CLAIMED);
 }
 
 static int
@@ -1211,7 +1230,7 @@ vioif_register_ints(struct vioif_softc *sc)
 
 	ret = virtio_register_ints(&sc->sc_virtio, NULL, vioif_vq_h);
 
-	return ret;
+	return (ret);
 }
 
 static int
@@ -1306,11 +1325,13 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_cache;
 	}
 
-	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0, VIOIF_RX_QLEN, 0, "rx");
+	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0,
+			VIOIF_RX_QLEN, 0, "rx");
 	if (!sc->sc_rx_vq)
 		goto exit_alloc1;
 
-	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1, VIOIF_TX_QLEN, 0, "tx");
+	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1,
+			VIOIF_TX_QLEN, 0, "tx");
 	if (!sc->sc_rx_vq)
 		goto exit_alloc2;
 
@@ -1349,7 +1370,8 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* Pre-fill the rx ring. */
 	vioif_populate_rx(sc, KM_SLEEP);
-	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
+	virtio_set_status(&sc->sc_virtio,
+		VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 
 	ret = mac_register(macp, &sc->sc_mac_handle);
@@ -1360,7 +1382,8 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	ret = vioif_register_ints(sc);
 	if (ret) {
-		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate interrupt(s)!");
+		dev_err(sc->sc_dev, CE_WARN,
+			"Failed to allocate interrupt(s)!");
 		goto exit_ints;
 	}
 
@@ -1415,7 +1438,8 @@ vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	}
 
 	if (sc->sc_rxloan) {
-		cmn_err(CE_NOTE, "Some rx buffers are still upstream, Not detaching");
+		cmn_err(CE_NOTE, "Some rx buffers are still upstream, "
+				"Not detaching");
 		return (DDI_FAILURE);
 	}
 

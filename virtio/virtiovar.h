@@ -29,7 +29,8 @@
  * Part of the file derived from `Virtio PCI Card Specification v0.8.6 DRAFT'
  * Appendix A.
  */
-/* An interface for efficient virtio implementation.
+/*
+ * An interface for efficient virtio implementation.
  *
  * This header is BSD licensed so anyone can use the definitions
  * to implement compatible drivers/servers.
@@ -48,10 +49,10 @@
  * 3. Neither the name of IBM nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL IBM OR CONTRIBUTORS BE LIABLE
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' ANDANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL IBM OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -70,37 +71,38 @@
 #include <sys/cmn_err.h>
 #include <sys/list.h>
 
-#define TRACE { \
-	cmn_err (CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
-	/*delay(drv_usectohz(1000000));  */\
+#define	TRACE { \
+	cmn_err(CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
 }
 
-#define FAST_TRACE { \
-	cmn_err (CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
+#define	FAST_TRACE { \
+	cmn_err(CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
 }
+
 typedef boolean_t bool;
-#define __packed  __attribute__((packed))
+#define	__packed  __attribute__((packed))
 
 struct vq_entry {
 	list_node_t		qe_list;
 	struct virtqueue	*qe_queue;
 	uint16_t		qe_index; /* index in vq_desc array */
-	uint16_t		qe_used_len; /* Set when the descriptor gets back from device*/
+	/* Set when the descriptor gets back from device */
+	uint16_t		qe_used_len;
 	/* followings are used only when it is the `head' entry */
 	struct vq_entry		*qe_next;
 	struct vring_desc	*qe_desc;
-	struct vring_desc       *ind_next;
+	struct vring_desc	*ind_next;
 };
 
 struct virtqueue {
 	struct virtio_softc	*vq_owner;
-        unsigned int		vq_num; /* queue size (# of entries) */
+	unsigned int		vq_num; /* queue size (# of entries) */
 	int			vq_index; /* queue number (0, 1, ...) */
 
 	/* vring pointers (KVA) */
-        struct vring_desc	*vq_descs;
-        struct vring_avail	*vq_avail;
-        struct vring_used	*vq_used;
+	struct vring_desc	*vq_descs;
+	struct vring_avail	*vq_avail;
+	struct vring_used	*vq_used;
 	void			*vq_indirect;
 
 	/* virtqueue allocation info */
@@ -138,52 +140,27 @@ struct virtio_softc {
 	uint32_t		sc_features;
 
 	int			sc_indirect;
-	int			sc_nvqs; /* set by the user */ 
+	int			sc_nvqs; /* set by the user */
 
 	ddi_intr_handle_t	*sc_intr_htable;
 	int			sc_intr_num;
 	int			sc_intr_cap;
 };
 
-//typedef int (*virtio_int_func) (struct virtio_softc *sc, void *priv);
-
 struct virtio_int_handler {
 	ddi_intr_handler_t *vh_func;
 	void *vh_priv;
 };
 
-/* The standard layout for the ring is a continuous chunk of memory which
- * looks like this.  We assume num is a power of 2.
- *
- * struct vring {
- *      // The actual descriptors (16 bytes each)
- *      struct vring_desc desc[num];
- *
- *      // A ring of available descriptor heads with free-running index.
- *      __u16 avail_flags;
- *      __u16 avail_idx;
- *      __u16 available[num];
- *
- *      // Padding to the next align boundary.
- *      char pad[];
- *
- *      // A ring of used descriptor heads with free-running index.
- *      __u16 used_flags;
- *      __u16 used_idx;
- *      struct vring_used_elem used[num];
- * };
- * Note: for virtio PCI, align is 4096.
- */
-
 /* public interface */
 
 void virtio_init(struct virtio_softc *sc);
-uint32_t virtio_negotiate_features(struct virtio_softc*, uint32_t);
+uint32_t virtio_negotiate_features(struct virtio_softc *, uint32_t);
 size_t virtio_show_features(struct virtio_softc *sc, uint32_t features,
 	char *buffer, size_t len);
 boolean_t virtio_has_feature(struct virtio_softc *sc, uint32_t feature);
-void virtio_set_status(struct virtio_softc *sc, int );
-#define virtio_device_reset(sc)	virtio_set_status((sc), 0)
+void virtio_set_status(struct virtio_softc *sc, int);
+#define	virtio_device_reset(sc)	virtio_set_status((sc), 0)
 
 uint8_t virtio_read_device_config_1(struct virtio_softc *, int);
 uint16_t virtio_read_device_config_2(struct virtio_softc *, int);
@@ -196,31 +173,27 @@ void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
 
 struct virtqueue * virtio_alloc_vq(struct virtio_softc *sc,
 		int index, int maxnsegs, int size, const char *name);
-void virtio_free_vq(struct virtqueue*);
+void virtio_free_vq(struct virtqueue *);
 void virtio_reset(struct virtio_softc *);
 struct vq_entry * vq_alloc_entry(struct virtqueue *vq);
 void vq_free_entry(struct virtqueue *vq, struct vq_entry *qe);
 
-int virtio_vq_intr(struct virtio_softc *);
 void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);
-
-//void virtio_ventry_stick(struct vq_entry *first, struct vq_entry *second);
-
 
 void virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
     ddi_dma_cookie_t dma_cookie, unsigned int ncookies, bool write);
 void virtio_ve_add_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-		  bool write);
+		bool write);
 void virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write);
 void virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-		   bool write);
+		bool write);
 
 void virtio_push_chain(struct vq_entry *qe, boolean_t sync);
-void virtio_sync_vq(struct virtqueue *vq);
-
 struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct vq_entry *ve);
+void virtio_sync_vq(struct virtqueue *vq);
+
 int virtio_register_ints(struct virtio_softc *sc,
 		struct virtio_int_handler *config_handler,
 		struct virtio_int_handler vq_handlers[]);
