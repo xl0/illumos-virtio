@@ -143,6 +143,7 @@ struct vioblk_softc {
 	uint64_t		sc_nblks;
 	struct vioblk_lstats	sc_stats;
 	short			sc_blkflags;
+	boolean_t		sc_in_poll_mode;
 	int			sc_readonly;
 	int			sc_blk_size;
 	int			sc_seg_max;
@@ -161,7 +162,7 @@ static int vioblk_flush(void *arg, bd_xfer_t *xfer);
 static void vioblk_driveinfo(void *arg, bd_drive_t *drive);
 static int vioblk_mediainfo(void *arg, bd_media_t *media);
 static int vioblk_devid_init(void *, dev_info_t *, ddi_devid_t *);
-
+uint_t vioblk_int_handler(caddr_t arg1, caddr_t arg2);
 
 static bd_ops_t vioblk_ops = {
 	BD_OPS_VERSION_0,
@@ -176,7 +177,7 @@ static bd_ops_t vioblk_ops = {
 static int vioblk_attach(dev_info_t *, ddi_attach_cmd_t);
 static int vioblk_detach(dev_info_t *, ddi_detach_cmd_t);
 
-static struct dev_ops vioblk_ops = {
+static struct dev_ops vioblk_dev_ops = {
 	DEVO_REV,
 	0,
 	ddi_no_info,
@@ -191,13 +192,15 @@ static struct dev_ops vioblk_ops = {
 	ddi_quiesce_not_supported /* quiesce */
 };
 
+
+
 /* Standard Module linkage initialization for a Streams driver */
 extern struct mod_ops mod_driverops;
 
 static struct modldrv modldrv = {
 	&mod_driverops,		/* Type of module.  This one is a driver */
 	vioblk_ident,    /* short description */
-	&vioblk_ops	/* driver specific ops */
+	&vioblk_dev_ops	/* driver specific ops */
 };
 
 static struct modlinkage modlinkage = {
@@ -243,61 +246,6 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	1,				/* dma_attr_granular	*/
 	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags	*/
 };
-
-/*
- * This just polls for completion.  We bail out after
- * a while to prevent a hard hang condition.
- */
-static int
-vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer)
-{
-	clock_t                 tmout;
-	struct vq_entry         *ve;
-	struct vioblk_req       *req;
-	size_t                  len;
-
-	ASSERT(xfer->x_flags & BD_XFER_POLL);
-
-	tmout = drv_usectohz(30000000);
-
-	while (tmout) {
-		ve = virtio_pull_chain(sc->sc_vq, &len);
-		if (ve == NULL) {
-			drv_usecwait(10);
-			tmout -= 10;
-			continue;
-		}
-		req = &sc->sc_reqs[ve->qe_index];
-		if (req->xfer != xfer) {
-			drv_usecwait(10);
-			tmout -= 10;
-			continue;
-		}
-
-		/* syncing status */
-		ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
-		sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
-
-		/* returning chain back to virtio */
-		virtio_free_chain(ve);
-
-		switch (req->status) {
-		case VIRTIO_BLK_S_OK:
-			return (0);
-		case VIRTIO_BLK_S_IOERR:
-			sc->sc_stats.io_errors++;
-			return (EIO);
-		case VIRTIO_BLK_S_UNSUPP:
-			sc->sc_stats.unsupp_errors++;
-			return (ENOTTY);
-		default:
-			sc->sc_stats.nxio_errors++;
-		return (ENXIO);
-		}
-	}
-
-	return (ETIMEDOUT);
-}
 
 
 
@@ -524,26 +472,84 @@ exit_nomem0:
 	return (ENOMEM);
 }
 
+
+/*
+ * Now in polling mode. Interrupts are off, so we
+ * 1) poll for the already queued requests to complete.
+ * 2) push our request.
+ * 3) wait for our request to complete.
+ */
+static int
+vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer,
+		int type, uint32_t len)
+{
+	clock_t tmout;
+	int ret;
+
+	ASSERT(xfer->x_flags & BD_XFER_POLL);
+
+	/* Prevent a hard hang. */
+	tmout = drv_usectohz(30000000);
+
+	/* Poll for an empty queue */
+	while (vq_num_used(sc->sc_vq)) {
+		/* Check if any pending requests completed. */
+		ret = vioblk_int_handler((caddr_t) &sc->sc_virtio, NULL);
+		if (ret != DDI_INTR_CLAIMED) {
+			drv_usecwait(10);
+			tmout -= 10;
+			return (ETIMEDOUT);
+		}
+	}
+
+	ret = vioblk_rw(sc, xfer, type, len);
+	if (ret)
+		return ret;
+
+	tmout = drv_usectohz(30000000);
+	/* Poll for an empty queue again. */
+	while (vq_num_used(sc->sc_vq)) {
+		/* Check if any pending requests completed. */
+		ret = vioblk_int_handler((caddr_t) &sc->sc_virtio, NULL);
+		if (ret != DDI_INTR_CLAIMED) {
+			drv_usecwait(10);
+			tmout -= 10;
+			return (ETIMEDOUT);
+		}
+	}
+
+	return (DDI_SUCCESS);
+}
+
 static int
 vioblk_read(void *arg, bd_xfer_t *xfer)
 {
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
-	boolean_t poll;
 
-	poll = (xfer->x_flags & BD_XFER_POLL) ? B_TRUE : B_FALSE;
+	if (xfer->x_flags & BD_XFER_POLL) {
+		if (!sc->sc_in_poll_mode) {
+			virtio_stop_vq_intr(sc->sc_vq);
+			sc->sc_in_poll_mode = 1;
+		}
 
-
-	if (sc->sc_virtio.sc_indirect)
-		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
-			xfer->x_nblks * sc->sc_blk_size);
-	else
-		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
+		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_IN,
 				xfer->x_nblks * sc->sc_blk_size);
+	} else {
+		if (sc->sc_in_poll_mode) {
+			cmn_err(CE_WARN, "Polled request followed by "
+				"a non-polled one. WTF?");
+			/* This is unusual, but should still work. */ 
+			virtio_start_vq_intr(sc->sc_vq);
+			sc->sc_in_poll_mode = 0;
+		}
 
-	if ((ret == 0) && poll) {
-		/* If running in polled mode, then wait for completion. */
-		ret = vioblk_rw_poll(sc, xfer);
+		if (sc->sc_virtio.sc_indirect)
+			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
+				xfer->x_nblks * sc->sc_blk_size);
+		else
+			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
+					xfer->x_nblks * sc->sc_blk_size);
 	}
 
 	return (ret);
@@ -555,12 +561,31 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
 
-	if (sc->sc_virtio.sc_indirect)
-		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_OUT,
-			xfer->x_nblks * sc->sc_blk_size);
-	else
-		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
-			xfer->x_nblks * sc->sc_blk_size);
+	if (xfer->x_flags & BD_XFER_POLL) {
+		if (!sc->sc_in_poll_mode) {
+			virtio_stop_vq_intr(sc->sc_vq);
+			sc->sc_in_poll_mode = 1;
+		}
+
+		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_OUT,
+				xfer->x_nblks * sc->sc_blk_size);
+	} else {
+		if (sc->sc_in_poll_mode) {
+
+			cmn_err(CE_WARN, "Polled request followed by "
+				"a non-polled one. WTF?");
+			/* This is unusual, but should still work. */ 
+			virtio_start_vq_intr(sc->sc_vq);
+			sc->sc_in_poll_mode = 0;
+		}
+
+		if (sc->sc_virtio.sc_indirect)
+			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_OUT,
+				xfer->x_nblks * sc->sc_blk_size);
+		else
+			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
+				xfer->x_nblks * sc->sc_blk_size);
+	}
 	return (ret);
 }
 
@@ -570,6 +595,9 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
 
+	if (xfer->x_flags & BD_XFER_POLL) {
+		cmn_err(CE_WARN, "Flush in polling mode?");
+	}
 	if (sc->sc_virtio.sc_indirect)
 		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
 			xfer->x_nblks * sc->sc_blk_size);
@@ -1268,10 +1296,10 @@ _init(void)
 {
 	int rv;
 
-	bd_mod_init(&vioblk_ops);
+	bd_mod_init(&vioblk_dev_ops);
 
 	if ((rv = mod_install(&modlinkage)) != 0) {
-		bd_mod_fini(&vioblk_ops);
+		bd_mod_fini(&vioblk_dev_ops);
 	}
 
 	return (rv);
@@ -1283,7 +1311,7 @@ _fini(void)
 	int rv;
 
 	if ((rv = mod_remove(&modlinkage)) == 0) {
-		bd_mod_fini(&vioblk_ops);
+		bd_mod_fini(&vioblk_dev_ops);
 	}
 
 	return (rv);
