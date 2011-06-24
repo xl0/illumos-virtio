@@ -121,11 +121,11 @@ struct virtqueue {
 	struct vq_entry		*vq_entries;
 	list_t			vq_freelist;
 	kmutex_t		vq_freelist_lock;
+	int			vq_used_entries;
 
 	/* enqueue/dequeue status */
 	uint16_t		vq_avail_idx;
 	uint16_t		vq_used_idx;
-	int			vq_queued;
 };
 
 struct virtio_softc {
@@ -176,6 +176,7 @@ void virtio_free_vq(struct virtqueue *);
 void virtio_reset(struct virtio_softc *);
 struct vq_entry * vq_alloc_entry(struct virtqueue *vq);
 void vq_free_entry(struct virtqueue *vq, struct vq_entry *qe);
+uint_t vq_num_used(struct virtqueue *vq);
 
 void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);

@@ -475,6 +475,9 @@ vq_alloc_entry(struct virtqueue *vq)
 	}
 	qe = list_remove_head(&vq->vq_freelist);
 
+	ASSERT(vq->vq_used_entries >= 0);
+	vq->vq_used_entries++;
+
 	mutex_exit(&vq->vq_freelist_lock);
 
 	qe->qe_next = NULL;
@@ -489,8 +492,22 @@ vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 {
 	mutex_enter(&vq->vq_freelist_lock);
 	list_insert_head(&vq->vq_freelist, qe);
+	vq->vq_used_entries--;
+	ASSERT(vq->vq_used_entries >= 0);
 	mutex_exit(&vq->vq_freelist_lock);
 }
+
+/*
+ * We (intentionally) don't have a global vq mutex, so you are
+ * responsible for external locking to avoid allocting/freeing any
+ * entries before using the returned value.
+ */
+uint_t vq_num_used(struct virtqueue *vq)
+{
+	/* vq->vq_freelist_lock would not help here. */
+	return vq->vq_used_entries;
+}
+
 
 void
 virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len, bool write)
