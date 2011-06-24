@@ -123,7 +123,7 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 }
 
 size_t
-virtio_show_features(struct virtio_softc *sc, uint32_t features,
+virtio_show_features(uint32_t features,
 		char *buf, size_t len)
 {
 	char *orig_buf = buf;
@@ -362,7 +362,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 		goto out_alloc;
 	}
 
-	memset(vq->vq_vaddr, 0, allocsize);
+	(void) memset(vq->vq_vaddr, 0, allocsize);
 
 	r = ddi_dma_addr_bind_handle(vq->vq_dma_handle, NULL,
 		(caddr_t) vq->vq_vaddr, allocsize,
@@ -425,7 +425,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	return (vq);
 
 out_zalloc:
-	ddi_dma_unbind_handle(vq->vq_dma_handle);
+	(void) ddi_dma_unbind_handle(vq->vq_dma_handle);
 out_bind:
 	ddi_dma_mem_free(&vq->vq_dma_acch);
 out_alloc:
@@ -451,7 +451,7 @@ virtio_free_vq(struct virtqueue *vq)
 
 	kmem_free(vq->vq_entries, sizeof (struct vq_entry) * vq->vq_num);
 
-	ddi_dma_unbind_handle(vq->vq_dma_handle);
+	(void) ddi_dma_unbind_handle(vq->vq_dma_handle);
 	ddi_dma_mem_free(&vq->vq_dma_acch);
 	ddi_dma_free_handle(&vq->vq_dma_handle);
 
@@ -479,7 +479,7 @@ vq_alloc_entry(struct virtqueue *vq)
 
 	qe->qe_next = NULL;
 	qe->ind_next = NULL;
-	memset(qe->qe_desc, 0, sizeof (struct vring_desc));
+	(void) memset(qe->qe_desc, 0, sizeof (struct vring_desc));
 
 	return (qe);
 }
@@ -564,7 +564,7 @@ virtio_notify(struct virtqueue *vq)
 	struct virtio_softc *vsc = vq->vq_owner;
 
 	/* Find out if we need to notify the device. */
-	ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
+	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
 		sizeof (struct vring_used), DDI_DMA_SYNC_FORKERNEL);
 
 	if (!(vq->vq_used->flags & VRING_USED_F_NO_NOTIFY))
@@ -572,12 +572,6 @@ virtio_notify(struct virtqueue *vq)
 			(uint16_t *) (vsc->sc_io_addr +
 				VIRTIO_CONFIG_QUEUE_NOTIFY),
 			vq->vq_index);
-}
-
-void
-virtio_queue_show(struct virtqueue *vq)
-{
-
 }
 
 void
@@ -660,7 +654,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	 * from the previous sync.
 	 */
 	if (vq->vq_used_idx == vq->vq_used->idx) {
-		ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
+		(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_usedoffset,
 			sizeof (struct vring_used), DDI_DMA_SYNC_FORKERNEL);
 
 		/* Still nothing? Bye. */
@@ -674,7 +668,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	usedidx %= vq->vq_num;
 
 	/* Sync the ring entry */
-	ddi_dma_sync(vq->vq_dma_handle,
+	(void) ddi_dma_sync(vq->vq_dma_handle,
 		vq->vq_usedoffset + sizeof (struct vring_used) +
 			sizeof (struct vring_used_elem) * usedidx,
 		sizeof (struct vring_used_elem), DDI_DMA_SYNC_FORKERNEL);
@@ -683,7 +677,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	*len = vq->vq_used->ring[usedidx].len;
 
 	/* And the descriptor */
-	ddi_dma_sync(vq->vq_dma_handle,
+	(void) ddi_dma_sync(vq->vq_dma_handle,
 		sizeof (struct vring_desc) * slot,
 		sizeof (struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	head = tmp = &vq->vq_entries[slot];
@@ -691,7 +685,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	/* Sync the rest of the chain */
 	while (tmp->qe_next) {
 		tmp = tmp->qe_next;
-		ddi_dma_sync(vq->vq_dma_handle,
+		(void) ddi_dma_sync(vq->vq_dma_handle,
 			sizeof (struct vring_desc) * tmp->qe_index,
 			sizeof (struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	}
@@ -802,7 +796,8 @@ static int virtio_register_msi(struct virtio_softc *sc,
 				"ddi_intr_add_handler failed");
 			/* Remove the handlers that succeeded. */
 			while (--i >= 0) {
-				ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+				(void) ddi_intr_remove_handler(
+						sc->sc_intr_htable[i]);
 			}
 			goto out_add_handlers;
 		}
@@ -818,7 +813,8 @@ static int virtio_register_msi(struct virtio_softc *sc,
 				"ddi_intr_add_handler failed");
 			/* Remove the handlers that succeeded. */
 			while (--i >= 0) {
-				ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+				(void) ddi_intr_remove_handler(
+						sc->sc_intr_htable[i]);
 			}
 			goto out_add_handlers;
 		}
@@ -849,7 +845,8 @@ static int virtio_register_msi(struct virtio_softc *sc,
 					"falling back to INTx", i);
 
 				while (--i >= 0) {
-					ddi_intr_disable(sc->sc_intr_htable[i]);
+					(void) ddi_intr_disable(
+						sc->sc_intr_htable[i]);
 				}
 				goto out_enable;
 			}
@@ -921,14 +918,14 @@ out_bind:
 			VIRTIO_MSI_NO_VECTOR);
 out_enable:
 	for (i = 0; i < handler_count; i++) {
-		ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+		(void) ddi_intr_remove_handler(sc->sc_intr_htable[i]);
 	}
 
 out_add_handlers:
 out_msi_prio:
 out_msi_available:
 	for (i = 0; i < actual; i++)
-		ddi_intr_free(sc->sc_intr_htable[i]);
+		(void) ddi_intr_free(sc->sc_intr_htable[i]);
 out_msi_alloc:
 	kmem_free(sc->sc_intr_htable, sizeof (ddi_intr_handle_t) * count);
 out_nomsi:
@@ -1003,11 +1000,11 @@ virtio_register_intx(struct virtio_softc *sc,
 	}
 
 	vhc->nhandlers = vq_handler_count;
-	memcpy(vhc->vq_handlers, vq_handlers,
+	(void) memcpy(vhc->vq_handlers, vq_handlers,
 		sizeof (struct virtio_int_handler) * vq_handler_count);
 
 	if (config_handler) {
-		memcpy(&vhc->config_handler, config_handler,
+		(void) memcpy(&vhc->config_handler, config_handler,
 			sizeof (struct virtio_int_handler));
 	}
 
@@ -1059,10 +1056,10 @@ virtio_register_intx(struct virtio_softc *sc,
 	return (DDI_SUCCESS);
 
 out_enable:
-	ddi_intr_remove_handler(sc->sc_intr_htable[0]);
+	(void) ddi_intr_remove_handler(sc->sc_intr_htable[0]);
 out_add_handlers:
 out_prio:
-	ddi_intr_free(sc->sc_intr_htable[0]);
+	(void) ddi_intr_free(sc->sc_intr_htable[0]);
 out_int_alloc:
 	kmem_free(sc->sc_intr_htable, sizeof (ddi_intr_handle_t));
 out_handle:
@@ -1161,11 +1158,11 @@ virtio_release_ints(struct virtio_softc *sc)
 
 
 	for (i = 0; i < sc->sc_intr_num; i++) {
-		ddi_intr_remove_handler(sc->sc_intr_htable[i]);
+		(void) ddi_intr_remove_handler(sc->sc_intr_htable[i]);
 	}
 
 	for (i = 0; i < sc->sc_intr_num; i++)
-		ddi_intr_free(sc->sc_intr_htable[i]);
+		(void) ddi_intr_free(sc->sc_intr_htable[i]);
 
 	kmem_free(sc->sc_intr_htable,
 		sizeof (ddi_intr_handle_t) * sc->sc_intr_num);

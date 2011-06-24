@@ -49,21 +49,22 @@ hex_dump(char *prefix, void *addr, int len)
 	int i = 0;
 	bptr = buff;
 
-	cmn_err(CE_NOTE, "Dumping %d bytes starting from 0x%p", len, base);
+	cmn_err(CE_NOTE, "Dumping %d bytes starting from 0x%p",
+		len, addr);
 
 	while (i < len) {
-		sprintf(bptr, "%02x ", base[i]);
+		(void) sprintf(bptr, "%02x ", base[i]);
 		bptr += 3;
 		i++;
 
 		if (!(i % 16)) {
 			cmn_err(CE_NOTE, "%s: 0x%p: %s",
-				prefix, base + i - 16, buff);
+				prefix, (void *) (base + i - 16), buff);
 			bptr = buff;
 		}
 	}
 
 	if (i % 16)
 		cmn_err(CE_NOTE, "%s: 0x%p: %s",
-			prefix, base + i - (i % 16), buff);
+			prefix, (void *) (base + i - (i % 16)), buff);
 }

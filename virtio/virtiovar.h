@@ -131,7 +131,7 @@ struct virtqueue {
 struct virtio_softc {
 	dev_info_t		*sc_dev;
 
-	int			sc_intr_prio;
+	uint_t			sc_intr_prio;
 
 	ddi_acc_handle_t	sc_ioh;
 	uint8_t			*sc_io_addr;
@@ -156,8 +156,7 @@ struct virtio_int_handler {
 
 void virtio_init(struct virtio_softc *sc);
 uint32_t virtio_negotiate_features(struct virtio_softc *, uint32_t);
-size_t virtio_show_features(struct virtio_softc *sc, uint32_t features,
-	char *buffer, size_t len);
+size_t virtio_show_features(uint32_t features, char *buffer, size_t len);
 boolean_t virtio_has_feature(struct virtio_softc *sc, uint32_t feature);
 void virtio_set_status(struct virtio_softc *sc, int);
 #define	virtio_device_reset(sc)	virtio_set_status((sc), 0)
