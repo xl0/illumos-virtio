@@ -87,7 +87,7 @@
 /*
  * Static Variables.
  */
-static char vioblk_stream_ident[] = "VirtIO block driver";
+static char vioblk_ident[] = "VirtIO block driver";
 
 /* Request header structure */
 struct vioblk_req_hdr {
@@ -158,10 +158,10 @@ struct vioblk_softc {
 static int vioblk_read(void *arg, bd_xfer_t *xfer);
 static int vioblk_write(void *arg, bd_xfer_t *xfer);
 static int vioblk_flush(void *arg, bd_xfer_t *xfer);
-static int vioblk_dump(void *arg, bd_xfer_t *xfer);
 static void vioblk_driveinfo(void *arg, bd_drive_t *drive);
 static int vioblk_mediainfo(void *arg, bd_media_t *media);
 static int vioblk_devid_init(void *, dev_info_t *, ddi_devid_t *);
+
 
 static bd_ops_t vioblk_ops = {
 	BD_OPS_VERSION_0,
@@ -171,13 +171,12 @@ static bd_ops_t vioblk_ops = {
 	vioblk_flush,
 	vioblk_read,
 	vioblk_write,
-	vioblk_dump
 };
 
 static int vioblk_attach(dev_info_t *, ddi_attach_cmd_t);
 static int vioblk_detach(dev_info_t *, ddi_detach_cmd_t);
 
-static struct dev_ops vioblk_stream_ops = {
+static struct dev_ops vioblk_ops = {
 	DEVO_REV,
 	0,
 	ddi_no_info,
@@ -197,8 +196,8 @@ extern struct mod_ops mod_driverops;
 
 static struct modldrv modldrv = {
 	&mod_driverops,		/* Type of module.  This one is a driver */
-	vioblk_stream_ident,    /* short description */
-	&vioblk_stream_ops	/* driver specific ops */
+	vioblk_ident,    /* short description */
+	&vioblk_ops	/* driver specific ops */
 };
 
 static struct modlinkage modlinkage = {
@@ -244,6 +243,64 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	1,				/* dma_attr_granular	*/
 	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags	*/
 };
+
+/*
+ * This just polls for completion.  We bail out after
+ * a while to prevent a hard hang condition.
+ */
+static int
+vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer)
+{
+	clock_t                 tmout;
+	struct vq_entry         *ve;
+	struct vioblk_req       *req;
+	size_t                  len;
+
+	ASSERT(xfer->x_flags & BD_XFER_POLL);
+
+	tmout = drv_usectohz(30000000);
+
+	while (tmout) {
+		ve = virtio_pull_chain(sc->sc_vq, &len);
+		if (ve == NULL) {
+			drv_usecwait(10);
+			tmout -= 10;
+			continue;
+		}
+		req = &sc->sc_reqs[ve->qe_index];
+		if (req->xfer != xfer) {
+			drv_usecwait(10);
+			tmout -= 10;
+			continue;
+		}
+
+		/* syncing status */
+		ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
+		sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
+
+		/* returning chain back to virtio */
+		virtio_free_chain(ve);
+
+		switch (req->status) {
+		case VIRTIO_BLK_S_OK:
+			return (0);
+		case VIRTIO_BLK_S_IOERR:
+			sc->sc_stats.io_errors++;
+			return (EIO);
+		case VIRTIO_BLK_S_UNSUPP:
+			sc->sc_stats.unsupp_errors++;
+			return (ENOTTY);
+		default:
+			sc->sc_stats.nxio_errors++;
+		return (ENXIO);
+		}
+	}
+
+	return (ETIMEDOUT);
+}
+
+
+
 
 static int
 vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
@@ -472,6 +529,10 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 {
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
+	boolean_t poll;
+
+	poll = (xfer->x_flags & BD_XFER_POLL) ? B_TRUE : B_FALSE;
+
 
 	if (sc->sc_virtio.sc_indirect)
 		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
@@ -479,6 +540,12 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 	else
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
 				xfer->x_nblks * sc->sc_blk_size);
+
+	if ((ret == 0) && poll) {
+		/* If running in polled mode, then wait for completion. */
+		ret = vioblk_rw_poll(sc, xfer);
+	}
+
 	return (ret);
 }
 
@@ -514,43 +581,6 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 	return (ret);
 }
 
-static int
-vioblk_dump(void *arg, bd_xfer_t *xfer_in)
-{
-	int ret;
-	size_t len;
-	struct vioblk_softc *sc = (void *)arg;
-	struct vq_entry *ve;
-
-	if (sc->sc_virtio.sc_indirect)
-		ret = vioblk_rw_indirect(sc, xfer_in, VIRTIO_BLK_T_OUT,
-			xfer_in->x_nblks * sc->sc_blk_size);
-	else
-		ret = vioblk_rw(sc, xfer_in, VIRTIO_BLK_T_OUT,
-			xfer_in->x_nblks * sc->sc_blk_size);
-	if (ret) {
-		dev_err(sc->sc_dev, CE_WARN,
-			"Cannot send dump request %d", xfer_in->x_blkno);
-		return (ret);
-	}
-
-	while ((ve = virtio_pull_chain(sc->sc_vq, &len))) {
-		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
-
-		/* syncing payload and freeing DMA handle */
-		if (req->bd_dmah)
-			(void) ddi_dma_unbind_handle(req->bd_dmah);
-
-		/* syncing status */
-		(void) ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
-			sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
-
-		/* returning chain back to virtio */
-		virtio_free_chain(ve);
-	}
-
-	return (DDI_SUCCESS);
-}
 
 static void
 vioblk_driveinfo(void *arg, bd_drive_t *drive)
@@ -939,22 +969,19 @@ vioblk_ksupdate(kstat_t *ksp, int rw)
 {
 	struct vioblk_softc *sc = ksp->ks_private;
 
-	if (rw != KSTAT_WRITE) {
-		sc->ks_data->sts_rw_cookiesmax.value.ui32 =
-			sc->sc_stats.rw_cookiesmax;
-		sc->ks_data->sts_intr_queuemax.value.ui32 =
-			sc->sc_stats.intr_queuemax;
-		sc->ks_data->sts_unsupp_errors.value.ui32 =
-			sc->sc_stats.unsupp_errors;
-		sc->ks_data->sts_nxio_errors.value.ui32 =
-			sc->sc_stats.nxio_errors;
-		sc->ks_data->sts_io_errors.value.ui32 =
-			sc->sc_stats.io_errors;
-		sc->ks_data->sts_rw_cacheflush.value.ui64 =
-			sc->sc_stats.rw_cacheflush;
-		sc->ks_data->sts_intr_total.value.ui64 =
-			sc->sc_stats.intr_total;
-	}
+	if (rw == KSTAT_WRITE)
+		return (EACCES);
+
+
+	/* XXX: A virtual kstat would be simpler here. */
+	sc->ks_data->sts_rw_cookiesmax.value.ui32 = sc->sc_stats.rw_cookiesmax;
+	sc->ks_data->sts_intr_queuemax.value.ui32 = sc->sc_stats.intr_queuemax;
+	sc->ks_data->sts_unsupp_errors.value.ui32 = sc->sc_stats.unsupp_errors;
+	sc->ks_data->sts_nxio_errors.value.ui32 = sc->sc_stats.nxio_errors;
+	sc->ks_data->sts_io_errors.value.ui32 = sc->sc_stats.io_errors;
+	sc->ks_data->sts_rw_cacheflush.value.ui64 = sc->sc_stats.rw_cacheflush;
+	sc->ks_data->sts_intr_total.value.ui64 = sc->sc_stats.intr_total;
+
 
 	return (0);
 }
@@ -1009,10 +1036,10 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 
 	ret = vioblk_match(devinfo, pci_conf);
+	pci_config_teardown(&pci_conf);
 	if (ret)
 		goto exit_match;
 
-	pci_config_teardown(&pci_conf);
 
 	/* Determine which types of interrupts supported */
 	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
@@ -1155,7 +1182,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	sc->bd_h = bd_alloc_handle(sc, &vioblk_ops, NULL, KM_SLEEP);
 	if (sc->bd_h == NULL) {
-		dev_err(devinfo, CE_WARN, "Failed to alocate blkdev");
+		dev_err(devinfo, CE_WARN, "Failed to allocate blkdev");
 		goto exit_alloc_bd;
 	}
 
@@ -1241,10 +1268,10 @@ _init(void)
 {
 	int rv;
 
-	bd_mod_init(&vioblk_stream_ops);
+	bd_mod_init(&vioblk_ops);
 
 	if ((rv = mod_install(&modlinkage)) != 0) {
-		bd_mod_fini(&vioblk_stream_ops);
+		bd_mod_fini(&vioblk_ops);
 	}
 
 	return (rv);
@@ -1256,7 +1283,7 @@ _fini(void)
 	int rv;
 
 	if ((rv = mod_remove(&modlinkage)) == 0) {
-		bd_mod_fini(&vioblk_stream_ops);
+		bd_mod_fini(&vioblk_ops);
 	}
 
 	return (rv);
