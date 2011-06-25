@@ -537,16 +537,13 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 				xfer->x_nblks * sc->sc_blk_size);
 	} else {
 		if (sc->sc_in_poll_mode) {
-			cmn_err(CE_WARN, "Polled request followed by "
-				"a non-polled one. WTF?");
-			/* This is unusual, but should still work. */ 
 			virtio_start_vq_intr(sc->sc_vq);
 			sc->sc_in_poll_mode = 0;
 		}
 
 		if (sc->sc_virtio.sc_indirect)
 			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
-				xfer->x_nblks * sc->sc_blk_size);
+					xfer->x_nblks * sc->sc_blk_size);
 		else
 			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
 					xfer->x_nblks * sc->sc_blk_size);
@@ -571,10 +568,6 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 				xfer->x_nblks * sc->sc_blk_size);
 	} else {
 		if (sc->sc_in_poll_mode) {
-
-			cmn_err(CE_WARN, "Polled request followed by "
-				"a non-polled one. WTF?");
-			/* This is unusual, but should still work. */ 
 			virtio_start_vq_intr(sc->sc_vq);
 			sc->sc_in_poll_mode = 0;
 		}
@@ -595,9 +588,8 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
 
-	if (xfer->x_flags & BD_XFER_POLL) {
-		cmn_err(CE_WARN, "Flush in polling mode?");
-	}
+	ASSERT ((xfer->x_flags & BD_XFER_POLL) == 0);
+
 	if (sc->sc_virtio.sc_indirect)
 		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
 			xfer->x_nblks * sc->sc_blk_size);
