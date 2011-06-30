@@ -1066,8 +1066,7 @@ vioif_show_features(struct vioif_softc *sc, const char *prefix,
 
 	bufp += snprintf(bufp, bufend - bufp, prefix);
 
-	bufp += virtio_show_features(&sc->sc_virtio,
-			features, bufp, bufend - bufp);
+	bufp += virtio_show_features(features, bufp, bufend - bufp);
 
 	bufp += snprintf(bufp, bufend - bufp, "Vioif ( ");
 

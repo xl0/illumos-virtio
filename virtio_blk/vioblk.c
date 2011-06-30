@@ -261,7 +261,7 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	int total_cookies, ret, write;
 
 	write = (type == VIRTIO_BLK_T_OUT ||
-		type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
+	    type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
 	ncookies = 0;
 	total_cookies = 2;
 
@@ -312,9 +312,9 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 
 	/* sending header */
 	(void) ddi_dma_sync(req->dmah, 0, sizeof (struct vioblk_req_hdr),
-		DDI_DMA_SYNC_FORDEV);
+	    DDI_DMA_SYNC_FORDEV);
 	virtio_ve_add_buf(ve_hdr, req->dmac.dmac_laddress,
-			sizeof (struct vioblk_req_hdr), B_TRUE);
+	    sizeof (struct vioblk_req_hdr), B_TRUE);
 
 	/* sending payload */
 	if (len > 0) {
@@ -324,8 +324,8 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	}
 
 	virtio_ve_add_buf(ve_hdr,
-		req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
-		sizeof (uint8_t), B_FALSE);
+	    req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
+	    sizeof (uint8_t), B_FALSE);
 
 	/* sending the whole chain to the device */
 	virtio_push_chain(ve_hdr, B_TRUE);
@@ -351,7 +351,7 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	int total_cookies, ret, dma_bound, write;
 
 	write = (type == VIRTIO_BLK_T_OUT ||
-		type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
+	    type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
 	dma_bound = 0;
 	total_cookies = 2;
 
@@ -380,9 +380,9 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 
 	/* sending header */
 	(void) ddi_dma_sync(req->dmah, 0, sizeof (struct vioblk_req_hdr),
-			DDI_DMA_SYNC_FORDEV);
+	    DDI_DMA_SYNC_FORDEV);
 	virtio_ve_set(ve, req->dmac.dmac_laddress,
-			sizeof (struct vioblk_req_hdr), B_TRUE);
+	    sizeof (struct vioblk_req_hdr), B_TRUE);
 
 	/* sending payload */
 	if (len > 0) {
@@ -423,7 +423,7 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 			ASSERT(dma_cookie.dmac_laddress);
 			virtio_ve_set(ve, dma_cookie.dmac_laddress,
 			    dma_cookie.dmac_size, write ?
-					B_TRUE : B_FALSE);
+			    B_TRUE : B_FALSE);
 			total_cookies++;
 
 			if (--ncookies) {
@@ -452,8 +452,8 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	ve = ve_next;
 
 	virtio_ve_set(ve,
-		req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
-		sizeof (uint8_t), B_FALSE);
+	    req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
+	    sizeof (uint8_t), B_FALSE);
 
 	/* sending the whole chain to the device */
 	virtio_push_chain(ve_hdr, B_TRUE);
@@ -494,7 +494,7 @@ vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer,
 	/* Poll for an empty queue */
 	while (vq_num_used(sc->sc_vq)) {
 		/* Check if any pending requests completed. */
-		ret = vioblk_int_handler((caddr_t) &sc->sc_virtio, NULL);
+		ret = vioblk_int_handler((caddr_t)&sc->sc_virtio, NULL);
 		if (ret != DDI_INTR_CLAIMED) {
 			drv_usecwait(10);
 			tmout -= 10;
@@ -504,13 +504,13 @@ vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer,
 
 	ret = vioblk_rw(sc, xfer, type, len);
 	if (ret)
-		return ret;
+		return (ret);
 
 	tmout = drv_usectohz(30000000);
 	/* Poll for an empty queue again. */
 	while (vq_num_used(sc->sc_vq)) {
 		/* Check if any pending requests completed. */
-		ret = vioblk_int_handler((caddr_t) &sc->sc_virtio, NULL);
+		ret = vioblk_int_handler((caddr_t)&sc->sc_virtio, NULL);
 		if (ret != DDI_INTR_CLAIMED) {
 			drv_usecwait(10);
 			tmout -= 10;
@@ -534,7 +534,7 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_IN,
-				xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * sc->sc_blk_size);
 	} else {
 		if (sc->sc_in_poll_mode) {
 			virtio_start_vq_intr(sc->sc_vq);
@@ -543,10 +543,10 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 
 		if (sc->sc_virtio.sc_indirect)
 			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
-					xfer->x_nblks * sc->sc_blk_size);
+			    xfer->x_nblks * sc->sc_blk_size);
 		else
 			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
-					xfer->x_nblks * sc->sc_blk_size);
+			    xfer->x_nblks * sc->sc_blk_size);
 	}
 
 	return (ret);
@@ -565,7 +565,7 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_OUT,
-				xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * sc->sc_blk_size);
 	} else {
 		if (sc->sc_in_poll_mode) {
 			virtio_start_vq_intr(sc->sc_vq);
@@ -574,10 +574,10 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 
 		if (sc->sc_virtio.sc_indirect)
 			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_OUT,
-				xfer->x_nblks * sc->sc_blk_size);
+			    xfer->x_nblks * sc->sc_blk_size);
 		else
 			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
-				xfer->x_nblks * sc->sc_blk_size);
+			    xfer->x_nblks * sc->sc_blk_size);
 	}
 	return (ret);
 }
@@ -588,14 +588,14 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 	int ret;
 	struct vioblk_softc *sc = (void *)arg;
 
-	ASSERT ((xfer->x_flags & BD_XFER_POLL) == 0);
+	ASSERT((xfer->x_flags & BD_XFER_POLL) == 0);
 
 	if (sc->sc_virtio.sc_indirect)
 		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
-			xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * sc->sc_blk_size);
 	else
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
-			xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * sc->sc_blk_size);
 	if (!ret)
 		sc->sc_stats.rw_cacheflush++;
 	return (ret);
@@ -642,7 +642,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	mutex_enter(&sc->lock_devid);
 	/* non-indirect call is fine here */
 	ret = vioblk_rw(sc, &sc->xfer_devid, VIRTIO_BLK_T_GET_ID,
-			VIRTIO_BLK_ID_BYTES);
+	    VIRTIO_BLK_ID_BYTES);
 	if (ret) {
 		mutex_exit(&sc->lock_devid);
 		return (ret);
@@ -659,19 +659,19 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	}
 
 	ret = ddi_devid_init(devinfo, DEVID_ATA_SERIAL,
-		VIRTIO_BLK_ID_BYTES, sc->devid, devid);
+	    VIRTIO_BLK_ID_BYTES, sc->devid, devid);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "Cannot build devid from the device");
 		return (ret);
 	}
 
 	dev_err(sc->sc_dev, CE_NOTE,
-		"devid %x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x",
-		sc->devid[0], sc->devid[1], sc->devid[2], sc->devid[3],
-		sc->devid[4], sc->devid[5], sc->devid[6], sc->devid[7],
-		sc->devid[8], sc->devid[9], sc->devid[10], sc->devid[11],
-		sc->devid[12], sc->devid[13], sc->devid[14], sc->devid[15],
-		sc->devid[16], sc->devid[17], sc->devid[18], sc->devid[19]);
+	    "devid %x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x",
+	    sc->devid[0], sc->devid[1], sc->devid[2], sc->devid[3],
+	    sc->devid[4], sc->devid[5], sc->devid[6], sc->devid[7],
+	    sc->devid[8], sc->devid[9], sc->devid[10], sc->devid[11],
+	    sc->devid[12], sc->devid[13], sc->devid[14], sc->devid[15],
+	    sc->devid[16], sc->devid[17], sc->devid[18], sc->devid[19]);
 
 	return (0);
 }
@@ -689,40 +689,40 @@ vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 
 	if (vendor != PCI_VENDOR_QUMRANET) {
 		dev_err(devinfo, CE_WARN,
-			"Vendor ID does not match: %x, expected %x",
-			vendor, PCI_VENDOR_QUMRANET);
+		    "Vendor ID does not match: %x, expected %x",
+		    vendor, PCI_VENDOR_QUMRANET);
 		return (DDI_FAILURE);
 	}
 
 	if (device < PCI_DEV_VIRTIO_MIN || device > PCI_DEV_VIRTIO_MAX) {
 		dev_err(devinfo, CE_WARN,
-			"Device ID is does not match: %x, expected"
-			"between %x and %x", device, PCI_DEV_VIRTIO_MIN,
-			PCI_DEV_VIRTIO_MAX);
+		    "Device ID is does not match: %x, expected"
+		    "between %x and %x", device, PCI_DEV_VIRTIO_MIN,
+		    PCI_DEV_VIRTIO_MAX);
 		return (DDI_FAILURE);
 	}
 
 	if (revision != VIRTIO_PCI_ABI_VERSION) {
 		dev_err(devinfo, CE_WARN,
-			"Device revision does not match: %x, expected %x",
-			revision, VIRTIO_PCI_ABI_VERSION);
+		    "Device revision does not match: %x, expected %x",
+		    revision, VIRTIO_PCI_ABI_VERSION);
 		return (DDI_FAILURE);
 	}
 
 	if (subvendor != PCI_VENDOR_QUMRANET) {
 		dev_err(devinfo, CE_WARN,
-			"Sub-vendor ID does not match: %x, expected %x",
-			vendor, PCI_VENDOR_QUMRANET);
+		    "Sub-vendor ID does not match: %x, expected %x",
+		    vendor, PCI_VENDOR_QUMRANET);
 		return (DDI_FAILURE);
 	}
 
 	if (subdevice != PCI_PRODUCT_VIRTIO_BLOCK) {
 		dev_err(devinfo, CE_NOTE,
-			"Subsystem ID does not match: %x, expected %x",
-			vendor, PCI_VENDOR_QUMRANET);
+		    "Subsystem ID does not match: %x, expected %x",
+		    vendor, PCI_VENDOR_QUMRANET);
 		dev_err(devinfo, CE_NOTE,
-			"This is a virtio device, but not virtio-blk, "
-			"skipping");
+		    "This is a virtio device, but not virtio-blk, "
+		    "skipping");
 
 		return (DDI_FAILURE);
 	}
@@ -740,32 +740,45 @@ vioblk_show_features(struct vioblk_softc *sc, const char *prefix,
 	char *bufp = buf;
 	char *bufend = buf + sizeof (buf);
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, prefix);
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += virtio_show_features(features, bufp, bufend - bufp);
 
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, "Vioblk ( ");
 
 	if (features & VIRTIO_BLK_F_BARRIER)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "BARRIER ");
 	if (features & VIRTIO_BLK_F_SIZE_MAX)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "SIZE_MAX ");
 	if (features & VIRTIO_BLK_F_SEG_MAX)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "SEG_MAX ");
 	if (features & VIRTIO_BLK_F_GEOMETRY)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GEOMETRY ");
 	if (features & VIRTIO_BLK_F_RO)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "RO ");
 	if (features & VIRTIO_BLK_F_BLK_SIZE)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "BLK_SIZE ");
 	if (features & VIRTIO_BLK_F_SCSI)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "SCSI ");
 	if (features & VIRTIO_BLK_F_FLUSH)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "FLUSH ");
 	if (features & VIRTIO_BLK_F_SECTOR_MAX)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "SECTOR_MAX ");
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, ")");
 	*bufp = '\0';
 
@@ -778,23 +791,23 @@ vioblk_dev_features(struct vioblk_softc *sc)
 	uint32_t host_features;
 
 	host_features = virtio_negotiate_features(&sc->sc_virtio,
-		VIRTIO_BLK_F_RO |
-		VIRTIO_BLK_F_GEOMETRY |
-		VIRTIO_BLK_F_BLK_SIZE |
-		VIRTIO_BLK_F_FLUSH |
-		VIRTIO_BLK_F_SEG_MAX |
-		VIRTIO_BLK_F_SIZE_MAX |
-		VIRTIO_F_RING_INDIRECT_DESC);
+	    VIRTIO_BLK_F_RO |
+	    VIRTIO_BLK_F_GEOMETRY |
+	    VIRTIO_BLK_F_BLK_SIZE |
+	    VIRTIO_BLK_F_FLUSH |
+	    VIRTIO_BLK_F_SEG_MAX |
+	    VIRTIO_BLK_F_SIZE_MAX |
+	    VIRTIO_F_RING_INDIRECT_DESC);
 
 	if (!(sc->sc_virtio.sc_features & VIRTIO_BLK_F_BLK_SIZE)) {
 		dev_err(sc->sc_dev, CE_NOTE,
-			"Error while negotiating host features");
+		    "Error while negotiating host features");
 		return (DDI_FAILURE);
 	}
 
 	vioblk_show_features(sc, "Host features: ", host_features);
 	vioblk_show_features(sc, "Negotiated features: ",
-			sc->sc_virtio.sc_features);
+	    sc->sc_virtio.sc_features);
 
 	return (DDI_SUCCESS);
 }
@@ -807,8 +820,9 @@ uint_t
 vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 {
 	struct virtio_softc *vsc = (void *)arg1;
+	/* LINTED E_BAD_PTR_CAST_ALIGN */
 	struct vioblk_softc *sc = container_of(vsc,
-			struct vioblk_softc, sc_virtio);
+	    struct vioblk_softc, sc_virtio);
 
 	struct vq_entry *ve;
 	size_t len;
@@ -825,7 +839,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 
 		/* syncing status */
 		(void) ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
-			sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
+		    sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
 
 		/* returning chain back to virtio */
 		virtio_free_chain(ve);
@@ -892,7 +906,7 @@ vioblk_register_ints(struct vioblk_softc *sc)
 	};
 
 	ret = virtio_register_ints(&sc->sc_virtio,
-		&vioblk_conf_h, vioblk_vq_h);
+	    &vioblk_conf_h, vioblk_vq_h);
 
 	return (ret);
 }
@@ -907,7 +921,7 @@ vioblk_alloc_reqs(struct vioblk_softc *sc)
 	sc->sc_reqs = kmem_zalloc(sizeof (struct vioblk_req) * qsize, KM_SLEEP);
 	if (!sc->sc_reqs) {
 		dev_err(sc->sc_dev, CE_WARN,
-			"Failed to allocate the reqs buffers array");
+		    "Failed to allocate the reqs buffers array");
 		return (ENOMEM);
 	}
 
@@ -918,28 +932,27 @@ vioblk_alloc_reqs(struct vioblk_softc *sc)
 		    DDI_DMA_SLEEP, 0, &req->bd_dmah)) {
 
 			dev_err(sc->sc_dev, CE_WARN,
-				"Can't allocate bd dma handle for req "
-				"buffer %d", i);
+			    "Can't allocate bd dma handle for req "
+			    "buffer %d", i);
 			goto exit;
 		}
 
 		if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_req_dma_attr,
-			DDI_DMA_SLEEP, NULL, &req->dmah)) {
+		    DDI_DMA_SLEEP, NULL, &req->dmah)) {
 
 			dev_err(sc->sc_dev, CE_WARN,
-				"Can't allocate dma handle for req "
-				"buffer %d", i);
+			    "Can't allocate dma handle for req "
+			    "buffer %d", i);
 			goto exit;
 		}
 
 		if (ddi_dma_addr_bind_handle(req->dmah, NULL,
-			(caddr_t) &req->hdr,
-			sizeof (struct vioblk_req_hdr) + sizeof (uint8_t),
-			DDI_DMA_RDWR | DDI_DMA_CONSISTENT, DDI_DMA_SLEEP,
-			NULL, &req->dmac, &req->ndmac)) {
-
+		    (caddr_t)&req->hdr,
+		    sizeof (struct vioblk_req_hdr) + sizeof (uint8_t),
+		    DDI_DMA_RDWR | DDI_DMA_CONSISTENT, DDI_DMA_SLEEP,
+		    NULL, &req->dmac, &req->ndmac)) {
 			dev_err(sc->sc_dev, CE_WARN,
-				"Can't bind req buffer %d", i);
+			    "Can't bind req buffer %d", i);
 			goto exit;
 		}
 	}
@@ -1065,7 +1078,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
 	if ((ret != DDI_SUCCESS) || (!(intr_types & DDI_INTR_TYPE_FIXED))) {
 		dev_err(devinfo, CE_WARN,
-			"fixed type interrupt is not supported");
+		    "fixed type interrupt is not supported");
 		goto exit_inttype;
 	}
 
@@ -1078,34 +1091,34 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	 * to test for it at run time on the hot path.
 	 */
 	sc->sc_intrstat = kstat_create("vioblk", instance,
-		"intrs", "controller", KSTAT_TYPE_NAMED,
-		sizeof (struct vioblk_stats) / sizeof (kstat_named_t),
-		KSTAT_FLAG_PERSISTENT);
+	    "intrs", "controller", KSTAT_TYPE_NAMED,
+	    sizeof (struct vioblk_stats) / sizeof (kstat_named_t),
+	    KSTAT_FLAG_PERSISTENT);
 	if (sc->sc_intrstat == NULL) {
 		dev_err(devinfo, CE_WARN, "kstat_create failed");
 		goto exit_intrstat;
 	}
 	ks_data = (struct vioblk_stats *)sc->sc_intrstat->ks_data;
 	kstat_named_init(&ks_data->sts_rw_outofmemory,
-			"total_rw_outofmemory", KSTAT_DATA_UINT64);
+	    "total_rw_outofmemory", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_rw_outofmappings,
-			"total_rw_outofmappings", KSTAT_DATA_UINT64);
+	    "total_rw_outofmappings", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_rw_badoffset,
-			"total_rw_badoffset", KSTAT_DATA_UINT64);
+	    "total_rw_badoffset", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_intr_total,
-			"total_intr", KSTAT_DATA_UINT64);
+	    "total_intr", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_io_errors,
-			"total_io_errors", KSTAT_DATA_UINT32);
+	    "total_io_errors", KSTAT_DATA_UINT32);
 	kstat_named_init(&ks_data->sts_unsupp_errors,
-			"total_unsupp_errors", KSTAT_DATA_UINT32);
+	    "total_unsupp_errors", KSTAT_DATA_UINT32);
 	kstat_named_init(&ks_data->sts_nxio_errors,
-			"total_nxio_errors", KSTAT_DATA_UINT32);
+	    "total_nxio_errors", KSTAT_DATA_UINT32);
 	kstat_named_init(&ks_data->sts_rw_cacheflush,
-			"total_rw_cacheflush", KSTAT_DATA_UINT64);
+	    "total_rw_cacheflush", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_rw_cookiesmax,
-			"max_rw_cookies", KSTAT_DATA_UINT32);
+	    "max_rw_cookies", KSTAT_DATA_UINT32);
 	kstat_named_init(&ks_data->sts_intr_queuemax,
-			"max_intr_queue", KSTAT_DATA_UINT32);
+	    "max_intr_queue", KSTAT_DATA_UINT32);
 	sc->ks_data = ks_data;
 	sc->sc_intrstat->ks_private = sc;
 	sc->sc_intrstat->ks_update = vioblk_ksupdate;
@@ -1113,8 +1126,8 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* map BAR0 */
 	ret = ddi_regs_map_setup(devinfo, 1,
-		(caddr_t *) &sc->sc_virtio.sc_io_addr,
-		0, 0, &vioblk_attr, &sc->sc_virtio.sc_ioh);
+	    (caddr_t *)&sc->sc_virtio.sc_io_addr,
+	    0, 0, &vioblk_attr, &sc->sc_virtio.sc_ioh);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "unable to map bar0: [%d]", ret);
 		goto exit_map;
@@ -1134,7 +1147,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		sc->sc_readonly = 0;
 
 	sc->sc_capacity = virtio_read_device_config_8(&sc->sc_virtio,
-		VIRTIO_BLK_CONFIG_CAPACITY);
+	    VIRTIO_BLK_CONFIG_CAPACITY);
 	sc->sc_nblks = sc->sc_capacity;
 
 	sc->sc_blk_size = DEV_BSIZE;
@@ -1183,13 +1196,13 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		sc->sc_maxxfer = MAXPHYS;
 
 	dev_err(devinfo, CE_NOTE, "nblks=%d blksize=%d maxxfer=%d "
-		"dma_maxxfer %ld dma_segs %ld",
-		sc->sc_nblks, sc->sc_blk_size, sc->sc_maxxfer,
-		vioblk_bd_dma_attr.dma_attr_maxxfer,
-		vioblk_bd_dma_attr.dma_attr_sgllen);
+	    "dma_maxxfer %ld dma_segs %ld",
+	    sc->sc_nblks, sc->sc_blk_size, sc->sc_maxxfer,
+	    vioblk_bd_dma_attr.dma_attr_maxxfer,
+	    vioblk_bd_dma_attr.dma_attr_sgllen);
 
 	sc->sc_vq = virtio_alloc_vq(&sc->sc_virtio, 0, 0,
-				    MAXINDIRECT, "I/O request");
+	    MAXINDIRECT, "I/O request");
 	if (sc->sc_vq == NULL) {
 		goto exit_alloc1;
 	}

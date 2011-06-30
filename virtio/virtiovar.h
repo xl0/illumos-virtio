@@ -134,7 +134,7 @@ struct virtio_softc {
 	uint_t			sc_intr_prio;
 
 	ddi_acc_handle_t	sc_ioh;
-	uint8_t			*sc_io_addr;
+	caddr_t			sc_io_addr;
 	int			sc_config_offset;
 
 	uint32_t		sc_features;
@@ -170,11 +170,11 @@ void virtio_write_device_config_2(struct virtio_softc *, int, uint16_t);
 void virtio_write_device_config_4(struct virtio_softc *, int, uint32_t);
 void virtio_write_device_config_8(struct virtio_softc *, int, uint64_t);
 
-struct virtqueue * virtio_alloc_vq(struct virtio_softc *sc,
+struct virtqueue *virtio_alloc_vq(struct virtio_softc *sc,
 		int index, int maxnsegs, int size, const char *name);
 void virtio_free_vq(struct virtqueue *);
 void virtio_reset(struct virtio_softc *);
-struct vq_entry * vq_alloc_entry(struct virtqueue *vq);
+struct vq_entry *vq_alloc_entry(struct virtqueue *vq);
 void vq_free_entry(struct virtqueue *vq, struct vq_entry *qe);
 uint_t vq_num_used(struct virtqueue *vq);
 
@@ -190,7 +190,7 @@ void virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len,
 		bool write);
 
 void virtio_push_chain(struct vq_entry *qe, boolean_t sync);
-struct vq_entry * virtio_pull_chain(struct virtqueue *vq, size_t *len);
+struct vq_entry *virtio_pull_chain(struct virtqueue *vq, size_t *len);
 void virtio_free_chain(struct vq_entry *ve);
 void virtio_sync_vq(struct virtqueue *vq);
 

@@ -22,7 +22,7 @@ dev_err(dev_info_t *dip, int ce, char *fmt, ...)
 	va_end(ap);
 
 	cmn_err(ce, "%s%d: %s", ddi_driver_name(dip),
-		ddi_get_instance(dip), buf);
+	    ddi_get_instance(dip), buf);
 }
 
 void
@@ -38,7 +38,7 @@ dev_panic(dev_info_t *dip, char *fmt, ...)
 	va_end(ap);
 
 	panic("%s%d: %s", ddi_driver_name(dip),
-		ddi_get_instance(dip), buf);
+	    ddi_get_instance(dip), buf);
 }
 
 void
@@ -50,7 +50,7 @@ hex_dump(char *prefix, void *addr, int len)
 	bptr = buff;
 
 	cmn_err(CE_NOTE, "Dumping %d bytes starting from 0x%p",
-		len, addr);
+	    len, addr);
 
 	while (i < len) {
 		(void) sprintf(bptr, "%02x ", base[i]);
@@ -59,12 +59,12 @@ hex_dump(char *prefix, void *addr, int len)
 
 		if (!(i % 16)) {
 			cmn_err(CE_NOTE, "%s: 0x%p: %s",
-				prefix, (void *) (base + i - 16), buff);
+			    prefix, (void *) (base + i - 16), buff);
 			bptr = buff;
 		}
 	}
 
 	if (i % 16)
 		cmn_err(CE_NOTE, "%s: 0x%p: %s",
-			prefix, (void *) (base + i - (i % 16)), buff);
+		    prefix, (void *) (base + i - (i % 16)), buff);
 }
