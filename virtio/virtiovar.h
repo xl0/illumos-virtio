@@ -182,12 +182,12 @@ void virtio_stop_vq_intr(struct virtqueue *);
 void virtio_start_vq_intr(struct virtqueue *);
 
 void virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
-    ddi_dma_cookie_t dma_cookie, unsigned int ncookies, bool write);
+    ddi_dma_cookie_t dma_cookie, unsigned int ncookies, boolean_t write);
 void virtio_ve_add_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-		bool write);
-void virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write);
+		boolean_t write);
+void virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, boolean_t write);
 void virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-		bool write);
+		boolean_t write);
 
 void virtio_push_chain(struct vq_entry *qe, boolean_t sync);
 struct vq_entry *virtio_pull_chain(struct virtqueue *vq, size_t *len);

@@ -806,7 +806,7 @@ static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 	}
 }
 
-static bool
+static boolean_t
 vioif_send(struct vioif_softc *sc, mblk_t *mb)
 {
 	struct vq_entry *ve;

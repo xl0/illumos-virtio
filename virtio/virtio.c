@@ -528,7 +528,8 @@ vq_num_used(struct virtqueue *vq)
 
 
 void
-virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len, bool write)
+virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len,
+    boolean_t write)
 {
 	qe->qe_desc->addr = paddr;
 	qe->qe_desc->len = len;
@@ -540,7 +541,7 @@ virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len, bool write)
 }
 
 void
-virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write)
+virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, boolean_t write)
 {
 	struct virtqueue *vq = qe->qe_queue;
 
@@ -561,7 +562,7 @@ virtio_ve_set_indirect(struct vq_entry *qe, int nsegs, bool write)
 
 void
 virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
-	ddi_dma_cookie_t dma_cookie, unsigned int ncookies, bool write)
+	ddi_dma_cookie_t dma_cookie, unsigned int ncookies, boolean_t write)
 {
 	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
 	int i;
@@ -581,7 +582,7 @@ virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
 
 void
 virtio_ve_add_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-			bool write)
+			boolean_t write)
 {
 	uint16_t flags = write ? 0 : VRING_DESC_F_WRITE;
 
