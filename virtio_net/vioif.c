@@ -331,6 +331,7 @@ static void vioif_rx_free(caddr_t free_arg)
 	atomic_dec_ulong(&sc->sc_rxloan);
 }
 
+/* ARGSUSED */
 static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 {
 	struct vioif_softc *sc = user_arg;
@@ -379,7 +380,7 @@ static int vioif_rx_construct(void *buffer, void *user_arg, int kmflags)
 
 exit:
 	if (buf->b_paddr)
-		ddi_dma_unbind_handle(buf->b_dmah);
+		(void) ddi_dma_unbind_handle(buf->b_dmah);
 	if (buf->b_acch)
 		ddi_dma_mem_free(&buf->b_acch);
 	if (buf->b_dmah)
@@ -388,6 +389,7 @@ exit:
 	return (ENOMEM);
 }
 
+/* ARGSUSED */
 static void vioif_rx_descruct(void *buffer, void *user_arg)
 {
 	struct vioif_buf *buf = buffer;
@@ -396,7 +398,7 @@ static void vioif_rx_descruct(void *buffer, void *user_arg)
 	ASSERT(buf->b_acch);
 	ASSERT(buf->b_dmah);
 
-	ddi_dma_unbind_handle(buf->b_dmah);
+	(void) ddi_dma_unbind_handle(buf->b_dmah);
 	ddi_dma_mem_free(&buf->b_acch);
 	ddi_dma_free_handle(&buf->b_dmah);
 }
@@ -413,7 +415,7 @@ vioif_free_mems(struct vioif_softc *sc)
 		ASSERT(buf->b_acch);
 		ASSERT(buf->b_dmah);
 
-		ddi_dma_unbind_handle(buf->b_dmah);
+		(void) ddi_dma_unbind_handle(buf->b_dmah);
 		ddi_dma_mem_free(&buf->b_acch);
 		ddi_dma_free_handle(&buf->b_dmah);
 	}
@@ -505,7 +507,7 @@ exit_tx:
 		struct vioif_buf *buf = &sc->sc_txbufs[i];
 
 		if (buf->b_paddr)
-			ddi_dma_unbind_handle(buf->b_dmah);
+			(void) ddi_dma_unbind_handle(buf->b_dmah);
 		if (buf->b_acch)
 			ddi_dma_mem_free(&buf->b_acch);
 		if (buf->b_dmah)
@@ -518,18 +520,21 @@ exit:
 	return (ENOMEM);
 }
 
+/* ARGSUSED */
 int
 vioif_multicst(void *arg, boolean_t add, const uint8_t *macaddr)
 {
 	return (DDI_SUCCESS);
 }
 
+/* ARGSUSED */
 int
 vioif_promisc(void *arg, boolean_t on)
 {
 	return (DDI_SUCCESS);
 }
 
+/* ARGSUSED */
 int
 vioif_unicst(void *arg, const uint8_t *macaddr)
 {
@@ -673,7 +678,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 		}
 
 		buf = sc->sc_rxbufs[ve_hdr->qe_index];
-		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
+		(void) ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
 
 		len -= sizeof (struct virtio_net_hdr);
 
@@ -728,7 +733,7 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 			continue;
 		}
 
-		ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
+		(void) ddi_dma_sync(buf->b_dmah, 0, len, DDI_DMA_SYNC_FORCPU);
 		len -= sizeof (struct virtio_net_hdr_mrg);
 
 		/*
@@ -843,14 +848,14 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 	buf_hdr = &sc->sc_txbufs[ve_hdr->qe_index];
 	buf = &sc->sc_txbufs[ve->qe_index];
 
-	memset(buf_hdr->b_buf, 0, hdr_len);
-	ddi_dma_sync(buf_hdr->b_dmah, 0, hdr_len,
+	(void) memset(buf_hdr->b_buf, 0, hdr_len);
+	(void) ddi_dma_sync(buf_hdr->b_dmah, 0, hdr_len,
 	    DDI_DMA_SYNC_FORDEV);
 
 	virtio_ve_set(ve_hdr, buf_hdr->b_paddr, hdr_len, B_TRUE);
 
 	mcopymsg(mb, buf->b_buf);
-	ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
+	(void) ddi_dma_sync(buf->b_dmah, 0, msg_size, DDI_DMA_SYNC_FORDEV);
 	virtio_ve_set(ve, buf->b_paddr, msg_size, B_TRUE);
 
 
@@ -903,7 +908,7 @@ vioif_stop(void *arg)
 	virtio_stop_vq_intr(sc->sc_rx_vq);
 }
 
-
+/* ARGSUSED */
 static int
 vioif_stat(void *arg, uint_t stat, uint64_t *val)
 {
@@ -923,7 +928,7 @@ vioif_stat(void *arg, uint_t stat, uint64_t *val)
 	return (DDI_SUCCESS);
 }
 
-
+#if 0
 static int
 vioif_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		    uint_t pr_valsize, const void *pr_val)
@@ -979,9 +984,11 @@ vioif_propinfo(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 			break;
 	}
 }
+#endif
+
 
 static mac_callbacks_t afe_m_callbacks = {
-	MC_SETPROP | MC_GETPROP | MC_PROPINFO,
+	0, /* MC_SETPROP | MC_GETPROP | MC_PROPINFO,*/
 	vioif_stat,
 	vioif_start,
 	vioif_stop,
@@ -994,9 +1001,14 @@ static mac_callbacks_t afe_m_callbacks = {
 	NULL,		/* mc_getcapab */
 	NULL,		/* mc_open */
 	NULL,		/* mc_close */
+	NULL,
+	NULL,
+	NULL
+/*
 	vioif_setprop,
 	vioif_getprop,
 	vioif_propinfo,
+*/
 };
 
 static int
@@ -1061,49 +1073,71 @@ vioif_show_features(struct vioif_softc *sc, const char *prefix,
 	char *bufp = buf;
 	char *bufend = buf + sizeof (buf);
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, prefix);
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += virtio_show_features(features, bufp, bufend - bufp);
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, "Vioif ( ");
 
 	if (features & VIRTIO_NET_F_CSUM)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "CSUM ");
 	if (features & VIRTIO_NET_F_GUEST_CSUM)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GUEST_CSUM ");
 	if (features & VIRTIO_NET_F_MAC)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "MAC ");
 	if (features & VIRTIO_NET_F_GSO)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GSO ");
 	if (features & VIRTIO_NET_F_GUEST_TSO4)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GUEST_TSO4 ");
 	if (features & VIRTIO_NET_F_GUEST_TSO6)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GUEST_TSO6 ");
 	if (features & VIRTIO_NET_F_GUEST_ECN)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GUEST_ECN ");
 	if (features & VIRTIO_NET_F_GUEST_UFO)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "GUEST_UFO ");
 	if (features & VIRTIO_NET_F_HOST_TSO4)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "HOST_TSO4 ");
 	if (features & VIRTIO_NET_F_HOST_TSO6)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "HOST_TSO6 ");
 	if (features & VIRTIO_NET_F_HOST_ECN)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "HOST_ECN ");
 	if (features & VIRTIO_NET_F_HOST_UFO)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "HOST_UFO ");
 	if (features & VIRTIO_NET_F_MRG_RXBUF)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "MRG_RXBUF ");
 	if (features & VIRTIO_NET_F_STATUS)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "STATUS ");
 	if (features & VIRTIO_NET_F_CTRL_VQ)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "CTRL_VQ ");
 	if (features & VIRTIO_NET_F_CTRL_RX)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "CTRL_RX ");
 	if (features & VIRTIO_NET_F_CTRL_VLAN)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "CTRL_VLAN ");
 	if (features & VIRTIO_NET_F_CTRL_RX_EXTRA)
+		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "CTRL_RX_EXTRA ");
 
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, ")");
 	*bufp = '\0';
 
@@ -1170,7 +1204,7 @@ vioif_get_mac(struct vioif_softc *sc)
 		    ether_sprintf((struct ether_addr *)sc->sc_mac));
 	} else {
 		/* Get a few random bytes */
-		random_get_pseudo_bytes(sc->sc_mac, ETHERADDRL);
+		(void) random_get_pseudo_bytes(sc->sc_mac, ETHERADDRL);
 		/* Make sure it's a unicast MAC */
 		sc->sc_mac[0] &= ~1;
 		/* Set the "locally administered" bit */
@@ -1188,24 +1222,28 @@ vioif_get_mac(struct vioif_softc *sc)
 /*
  * Virtqueue interrupt handlers
  */
+/* ARGSUSED */
 uint_t
 vioif_rx_handler(caddr_t arg1, caddr_t arg2)
 {
 	struct virtio_softc *vsc = (void *) arg1;
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	struct vioif_softc *sc = container_of(vsc,
 	    struct vioif_softc, sc_virtio);
 
-	vioif_process_rx(sc);
+	(void) vioif_process_rx(sc);
 
-	vioif_populate_rx(sc, KM_NOSLEEP);
+	(void) vioif_populate_rx(sc, KM_NOSLEEP);
 
 	return (DDI_INTR_CLAIMED);
 }
 
+/* ARGSUSED */
 uint_t
 vioif_tx_handler(caddr_t arg1, caddr_t arg2)
 {
 	struct virtio_softc *vsc = (void *)arg1;
+	/* LINTED E_PTRDIFF_OVERFLOW */
 	struct vioif_softc *sc = container_of(vsc,
 	    struct vioif_softc, sc_virtio);
 
@@ -1365,7 +1403,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	sc->sc_macp = macp;
 
 	/* Pre-fill the rx ring. */
-	vioif_populate_rx(sc, KM_SLEEP);
+	(void) vioif_populate_rx(sc, KM_SLEEP);
 	virtio_set_status(&sc->sc_virtio,
 	    VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
