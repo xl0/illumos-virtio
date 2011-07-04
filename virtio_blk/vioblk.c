@@ -108,7 +108,6 @@ struct vioblk_req {
 };
 
 struct vioblk_stats {
-	struct kstat_named	sts_rw_outofmappings;
 	struct kstat_named	sts_rw_outofmemory;
 	struct kstat_named	sts_rw_badoffset;
 	struct kstat_named	sts_rw_queuemax;
@@ -152,7 +151,6 @@ struct vioblk_softc {
 	int			sc_maxxfer;
 	kmutex_t		lock_devid;
 	kcondvar_t		cv_devid;
-	bd_xfer_t		xfer_devid;
 	char			devid[VIRTIO_BLK_ID_BYTES + 1];
 };
 
@@ -225,7 +223,7 @@ static ddi_dma_attr_t vioblk_req_dma_attr = {
 	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
 	0x1,				/* dma_attr_burstsizes	*/
 	0x1,				/* dma_attr_minxfer	*/
-	0xFFFFFFFF,			/* dma_attr_maxxfer	*/
+	0x40000000,			/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
 	1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
@@ -240,7 +238,7 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
-	0xFFFFFFFF,			/* dma_attr_maxxfer	*/
+	0x40000000,			/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
 	-1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
@@ -256,13 +254,10 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 {
 	struct vioblk_req *req;
 	struct vq_entry *ve_hdr;
-	unsigned int ncookies;
-	ddi_dma_cookie_t dma_cookie;
-	int total_cookies, ret, write;
+	int total_cookies, write;
 
 	write = (type == VIRTIO_BLK_T_OUT ||
 	    type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
-	ncookies = 0;
 	total_cookies = 2;
 
 	if ((xfer->x_blkno + xfer->x_nblks) > sc->sc_nblks) {
@@ -274,7 +269,7 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	ve_hdr = vq_alloc_entry(sc->sc_vq);
 	if (!ve_hdr) {
 		sc->ks_data->sts_rw_outofmemory.value.ui64++;
-		goto exit_nomem0;
+		goto exit_nomem;
 	}
 
 	/* getting request */
@@ -284,45 +279,25 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	req->hdr.sector = xfer->x_blkno;
 	req->xfer = xfer;
 
-	if (len > 0) {
-		ret = ddi_dma_addr_bind_handle(req->bd_dmah, NULL,
-		    (caddr_t)xfer->x_kaddr, len,
-		    (write ? DDI_DMA_WRITE : DDI_DMA_READ) |
-		    DDI_DMA_STREAMING, DDI_DMA_DONTWAIT, 0, &dma_cookie,
-		    &ncookies);
-		switch (ret) {
-		case DDI_DMA_MAPPED:
-			/* everything's fine */
-			break;
+	ASSERT(xfer->x_ndmac);
 
-		case DDI_DMA_NORESOURCES:
-			sc->ks_data->sts_rw_outofmappings.value.ui64++;
-			goto exit_nomem;
-
-		case DDI_DMA_NOMAPPING:
-		case DDI_DMA_INUSE:
-		case DDI_DMA_TOOBIG:
-		default:
-			sc->ks_data->sts_rw_outofmappings.value.ui64++;
-			goto exit_nomem;
-		}
-	}
-
-	virtio_ve_set_indirect(ve_hdr, ncookies + 2, B_TRUE);
+	virtio_ve_set_indirect(ve_hdr, xfer->x_ndmac + 2, B_TRUE);
 
 	/* sending header */
 	(void) ddi_dma_sync(req->dmah, 0, sizeof (struct vioblk_req_hdr),
 	    DDI_DMA_SYNC_FORDEV);
+
 	virtio_ve_add_buf(ve_hdr, req->dmac.dmac_laddress,
 	    sizeof (struct vioblk_req_hdr), B_TRUE);
 
 	/* sending payload */
 	if (len > 0) {
-		virtio_ve_add_cookie(ve_hdr, req->bd_dmah, dma_cookie,
-		    ncookies, write ? B_TRUE : B_FALSE);
-		total_cookies += ncookies;
+		virtio_ve_add_cookie(ve_hdr, xfer->x_dmah, xfer->x_dmac,
+		    xfer->x_ndmac, write ? B_TRUE : B_FALSE);
+		total_cookies += xfer->x_ndmac;
 	}
 
+	/* adding a buffer for the status */
 	virtio_ve_add_buf(ve_hdr,
 	    req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
 	    sizeof (uint8_t), B_FALSE);
@@ -337,7 +312,6 @@ vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 
 exit_nomem:
 	virtio_free_chain(ve_hdr);
-exit_nomem0:
 	return (ENOMEM);
 }
 
@@ -347,12 +321,12 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	struct vioblk_req *req;
 	struct vq_entry *ve, *ve_hdr, *ve_next;
 	unsigned int ncookies;
-	ddi_dma_cookie_t dma_cookie;
-	int total_cookies, ret, dma_bound, write;
+	int total_cookies, write;
+
+	ASSERT(0);
 
 	write = (type == VIRTIO_BLK_T_OUT ||
 	    type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
-	dma_bound = 0;
 	total_cookies = 2;
 
 	if ((xfer->x_blkno + xfer->x_nblks) > sc->sc_nblks) {
@@ -364,7 +338,7 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	ve_hdr = vq_alloc_entry(sc->sc_vq);
 	if (!ve_hdr) {
 		sc->ks_data->sts_rw_outofmemory.value.ui64++;
-		goto exit_nomem0;
+		goto exit_nomem;
 	}
 
 	/* getting request */
@@ -375,6 +349,8 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	req->hdr.type = type;
 	req->hdr.ioprio = 0;
 	req->hdr.sector = xfer->x_blkno;
+
+	ASSERT(xfer->x_ndmac);
 
 	ve = ve_hdr;
 
@@ -394,46 +370,25 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 		ve->qe_next = ve_next;
 		ve = ve_next;
 
-		ret = ddi_dma_addr_bind_handle(req->bd_dmah, NULL,
-		    (caddr_t)xfer->x_kaddr, len,
-		    (write ? DDI_DMA_WRITE : DDI_DMA_READ) |
-		    DDI_DMA_STREAMING, DDI_DMA_DONTWAIT, 0, &dma_cookie,
-		    &ncookies);
-		switch (ret) {
-		case DDI_DMA_MAPPED:
-			/* everything's fine */
-			break;
-
-		case DDI_DMA_NORESOURCES:
-			sc->ks_data->sts_rw_outofmappings.value.ui64++;
-			goto exit_nomem_dma;
-
-		case DDI_DMA_NOMAPPING:
-		case DDI_DMA_INUSE:
-		case DDI_DMA_TOOBIG:
-		default:
-			sc->ks_data->sts_rw_outofmappings.value.ui64++;
-			goto exit_nomem_dma;
-		}
-		dma_bound = 1;
+		ncookies = xfer->x_ndmac;
 		total_cookies += ncookies;
 
 		while (ncookies) {
 			/* going through all the cookies of payload next... */
-			ASSERT(dma_cookie.dmac_laddress);
-			virtio_ve_set(ve, dma_cookie.dmac_laddress,
-			    dma_cookie.dmac_size, write ?
-			    B_TRUE : B_FALSE);
+			ASSERT(xfer->x_dmac.dmac_laddress);
+			virtio_ve_set(ve, xfer->x_dmac.dmac_laddress,
+			    xfer->x_dmac.dmac_size, write ? B_TRUE : B_FALSE);
+
 			total_cookies++;
 
 			if (--ncookies) {
-				ddi_dma_nextcookie(req->bd_dmah, &dma_cookie);
+				ddi_dma_nextcookie(xfer->x_dmah, &xfer->x_dmac);
 
 				ve_next = vq_alloc_entry(sc->sc_vq);
 				if (!ve_next) {
 					sc->ks_data->
 					    sts_rw_outofmemory.value.ui64++;
-					goto exit_nomem_dma;
+					goto exit_nomem;
 				}
 				ve->qe_next = ve_next;
 				ve = ve_next;
@@ -446,7 +401,7 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 	ve_next = vq_alloc_entry(sc->sc_vq);
 	if (!ve_next) {
 		sc->ks_data->sts_rw_outofmemory.value.ui64++;
-		goto exit_nomem_dma;
+		goto exit_nomem;
 	}
 	ve->qe_next = ve_next;
 	ve = ve_next;
@@ -463,12 +418,10 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
 
 	return (DDI_SUCCESS);
 
-exit_nomem_dma:
-	if (dma_bound)
-		(void) ddi_dma_unbind_handle(req->bd_dmah);
 exit_nomem:
-	virtio_free_chain(ve_hdr);
-exit_nomem0:
+	if (ve_hdr)
+		virtio_free_chain(ve_hdr);
+
 	return (ENOMEM);
 }
 
@@ -632,25 +585,43 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	struct vioblk_softc *sc = (void *)arg;
 	clock_t deadline;
 	int ret;
+	bd_xfer_t xfer;
 
 	deadline = ddi_get_lbolt() + (clock_t)drv_usectohz(3 * 1000000);
+	xfer.x_nblks = 1;
 
-	sc->xfer_devid.x_kaddr = sc->devid;
-	sc->xfer_devid.x_nblks = 1;
-	sc->xfer_devid.x_blkno = 0;
+	if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
+	    DDI_DMA_SLEEP, NULL, &xfer.x_dmah) != DDI_SUCCESS) {
+		return (DDI_FAILURE);
+	}
+
+	if (ddi_dma_addr_bind_handle(xfer.x_dmah, NULL, (caddr_t)&sc->devid,
+	    VIRTIO_BLK_ID_BYTES, DDI_DMA_READ | DDI_DMA_CONSISTENT,
+	    DDI_DMA_SLEEP, NULL, &xfer.x_dmac, &xfer.x_ndmac) !=
+	    DDI_DMA_MAPPED) {
+		ddi_dma_free_handle(&xfer.x_dmah);
+		return (DDI_FAILURE);
+	}
 
 	mutex_enter(&sc->lock_devid);
 	/* non-indirect call is fine here */
-	ret = vioblk_rw(sc, &sc->xfer_devid, VIRTIO_BLK_T_GET_ID,
+	ret = vioblk_rw_indirect(sc, &xfer, VIRTIO_BLK_T_GET_ID,
 	    VIRTIO_BLK_ID_BYTES);
 	if (ret) {
 		mutex_exit(&sc->lock_devid);
+
+		(void) ddi_dma_unbind_handle(xfer.x_dmah);
+		ddi_dma_free_handle(&xfer.x_dmah);
+
 		return (ret);
 	}
 
 	/* wait for reply */
 	ret = cv_timedwait(&sc->cv_devid, &sc->lock_devid, deadline);
 	mutex_exit(&sc->lock_devid);
+
+	(void) ddi_dma_unbind_handle(xfer.x_dmah);
+	ddi_dma_free_handle(&xfer.x_dmah);
 
 	/* timeout */
 	if (ret < 0) {
@@ -833,10 +804,6 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
 		bd_xfer_t *xfer = req->xfer;
 
-		/* syncing payload and freeing DMA handle */
-		if (req->bd_dmah)
-			(void) ddi_dma_unbind_handle(req->bd_dmah);
-
 		/* syncing status */
 		(void) ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
 		    sizeof (uint8_t), DDI_DMA_SYNC_FORKERNEL);
@@ -862,6 +829,11 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 				error = ENXIO;
 				break;
 		}
+
+		/*
+		* Note: blkdev syncs the handle and tears down the
+		* payload mapping for us.
+		*/
 		if (req->hdr.type == VIRTIO_BLK_T_GET_ID) {
 			/* notify devid_init */
 			mutex_enter(&sc->lock_devid);
@@ -928,15 +900,6 @@ vioblk_alloc_reqs(struct vioblk_softc *sc)
 	for (i = 0; i < qsize; i++) {
 		struct vioblk_req *req = &sc->sc_reqs[i];
 
-		if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
-		    DDI_DMA_SLEEP, 0, &req->bd_dmah)) {
-
-			dev_err(sc->sc_dev, CE_WARN,
-			    "Can't allocate bd dma handle for req "
-			    "buffer %d", i);
-			goto exit;
-		}
-
 		if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_req_dma_attr,
 		    DDI_DMA_SLEEP, NULL, &req->dmah)) {
 
@@ -968,9 +931,6 @@ exit:
 
 		if (req->dmah)
 			ddi_dma_free_handle(&req->dmah);
-
-		if (req->bd_dmah)
-			ddi_dma_free_handle(&req->bd_dmah);
 	}
 
 	kmem_free(sc->sc_reqs, sizeof (struct vioblk_req) * qsize);
@@ -1101,8 +1061,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	ks_data = (struct vioblk_stats *)sc->sc_intrstat->ks_data;
 	kstat_named_init(&ks_data->sts_rw_outofmemory,
 	    "total_rw_outofmemory", KSTAT_DATA_UINT64);
-	kstat_named_init(&ks_data->sts_rw_outofmappings,
-	    "total_rw_outofmappings", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_rw_badoffset,
 	    "total_rw_badoffset", KSTAT_DATA_UINT64);
 	kstat_named_init(&ks_data->sts_intr_total,
@@ -1213,7 +1171,8 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_alloc2;
 	}
 
-	sc->bd_h = bd_alloc_handle(sc, &vioblk_ops, NULL, KM_SLEEP);
+	sc->bd_h = bd_alloc_handle(sc, &vioblk_ops, &vioblk_bd_dma_attr,
+	    KM_SLEEP);
 	if (sc->bd_h == NULL) {
 		dev_err(devinfo, CE_WARN, "Failed to allocate blkdev");
 		goto exit_alloc_bd;
