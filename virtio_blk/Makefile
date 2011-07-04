@@ -1,6 +1,6 @@
 
 
-CFLAGS= -D_KERNEL -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -nodefaultlibs -I../virtio -Wall -g
+CFLAGS= -DDEBUG -D_KERNEL -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -nodefaultlibs -I../virtio -Wall -g
 LDFLAGS=-r -dy -N misc/mac -N misc/virtio -N drv/blkdev
 
 CC=gcc
