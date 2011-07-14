@@ -119,7 +119,7 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 	    features);
 
 	sc->sc_features = features;
-	sc->sc_indirect = features & VIRTIO_F_RING_INDIRECT_DESC;
+	sc->sc_indirect = !!(features & VIRTIO_F_RING_INDIRECT_DESC);
 
 	return (host_features);
 }

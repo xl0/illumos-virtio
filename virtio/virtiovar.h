@@ -139,7 +139,7 @@ struct virtio_softc {
 
 	uint32_t		sc_features;
 
-	int			sc_indirect;
+	boolean_t		sc_indirect;
 	int			sc_nvqs; /* set by the user */
 
 	ddi_intr_handle_t	*sc_intr_htable;

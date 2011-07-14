@@ -245,11 +245,8 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags	*/
 };
 
-
-
-
 static int
-vioblk_rw_indirect(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
+vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 			uint32_t len)
 {
 	struct vioblk_req *req;
@@ -314,117 +311,6 @@ exit_nomem:
 	virtio_free_chain(ve_hdr);
 	return (ENOMEM);
 }
-
-static int
-vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type, uint32_t len)
-{
-	struct vioblk_req *req;
-	struct vq_entry *ve, *ve_hdr, *ve_next;
-	unsigned int ncookies;
-	int total_cookies, write;
-
-	ASSERT(0);
-
-	write = (type == VIRTIO_BLK_T_OUT ||
-	    type == VIRTIO_BLK_T_FLUSH_OUT) ? 1 : 0;
-	total_cookies = 2;
-
-	if ((xfer->x_blkno + xfer->x_nblks) > sc->sc_nblks) {
-		sc->ks_data->sts_rw_badoffset.value.ui64++;
-		return (EINVAL);
-	}
-
-	/* allocate top entry */
-	ve_hdr = vq_alloc_entry(sc->sc_vq);
-	if (!ve_hdr) {
-		sc->ks_data->sts_rw_outofmemory.value.ui64++;
-		goto exit_nomem;
-	}
-
-	/* getting request */
-	req = &sc->sc_reqs[ve_hdr->qe_index];
-	req->xfer = xfer;
-
-	/* header is pre-mapped */
-	req->hdr.type = type;
-	req->hdr.ioprio = 0;
-	req->hdr.sector = xfer->x_blkno;
-
-	ASSERT(xfer->x_ndmac);
-
-	ve = ve_hdr;
-
-	/* sending header */
-	(void) ddi_dma_sync(req->dmah, 0, sizeof (struct vioblk_req_hdr),
-	    DDI_DMA_SYNC_FORDEV);
-	virtio_ve_set(ve, req->dmac.dmac_laddress,
-	    sizeof (struct vioblk_req_hdr), B_TRUE);
-
-	/* sending payload */
-	if (len > 0) {
-		ve_next = vq_alloc_entry(sc->sc_vq);
-		if (!ve_next) {
-			sc->ks_data->sts_rw_outofmemory.value.ui64++;
-			goto exit_nomem;
-		}
-		ve->qe_next = ve_next;
-		ve = ve_next;
-
-		ncookies = xfer->x_ndmac;
-		total_cookies += ncookies;
-
-		while (ncookies) {
-			/* going through all the cookies of payload next... */
-			ASSERT(xfer->x_dmac.dmac_laddress);
-			virtio_ve_set(ve, xfer->x_dmac.dmac_laddress,
-			    xfer->x_dmac.dmac_size, write ? B_TRUE : B_FALSE);
-
-			total_cookies++;
-
-			if (--ncookies) {
-				ddi_dma_nextcookie(xfer->x_dmah, &xfer->x_dmac);
-
-				ve_next = vq_alloc_entry(sc->sc_vq);
-				if (!ve_next) {
-					sc->ks_data->
-					    sts_rw_outofmemory.value.ui64++;
-					goto exit_nomem;
-				}
-				ve->qe_next = ve_next;
-				ve = ve_next;
-			}
-
-		}
-	}
-
-	/* sending status */
-	ve_next = vq_alloc_entry(sc->sc_vq);
-	if (!ve_next) {
-		sc->ks_data->sts_rw_outofmemory.value.ui64++;
-		goto exit_nomem;
-	}
-	ve->qe_next = ve_next;
-	ve = ve_next;
-
-	virtio_ve_set(ve,
-	    req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
-	    sizeof (uint8_t), B_FALSE);
-
-	/* sending the whole chain to the device */
-	virtio_push_chain(ve_hdr, B_TRUE);
-
-	if (sc->sc_stats.rw_cookiesmax < total_cookies)
-		sc->sc_stats.rw_cookiesmax = total_cookies;
-
-	return (DDI_SUCCESS);
-
-exit_nomem:
-	if (ve_hdr)
-		virtio_free_chain(ve_hdr);
-
-	return (ENOMEM);
-}
-
 
 /*
  * Now in polling mode. Interrupts are off, so we
@@ -494,12 +380,8 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 			sc->sc_in_poll_mode = 0;
 		}
 
-		if (sc->sc_virtio.sc_indirect)
-			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_IN,
-			    xfer->x_nblks * sc->sc_blk_size);
-		else
-			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
-			    xfer->x_nblks * sc->sc_blk_size);
+		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
+		    xfer->x_nblks * sc->sc_blk_size);
 	}
 
 	return (ret);
@@ -525,12 +407,8 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 			sc->sc_in_poll_mode = 0;
 		}
 
-		if (sc->sc_virtio.sc_indirect)
-			ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_OUT,
-			    xfer->x_nblks * sc->sc_blk_size);
-		else
-			ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
-			    xfer->x_nblks * sc->sc_blk_size);
+		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
+		    xfer->x_nblks * sc->sc_blk_size);
 	}
 	return (ret);
 }
@@ -543,14 +421,12 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 
 	ASSERT((xfer->x_flags & BD_XFER_POLL) == 0);
 
-	if (sc->sc_virtio.sc_indirect)
-		ret = vioblk_rw_indirect(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
-		    xfer->x_nblks * sc->sc_blk_size);
-	else
-		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
-		    xfer->x_nblks * sc->sc_blk_size);
+	ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
+	    xfer->x_nblks * sc->sc_blk_size);
+
 	if (!ret)
 		sc->sc_stats.rw_cacheflush++;
+
 	return (ret);
 }
 
@@ -560,7 +436,7 @@ vioblk_driveinfo(void *arg, bd_drive_t *drive)
 {
 	struct vioblk_softc *sc = (void *)arg;
 
-	drive->d_qsize = sc->sc_virtio.sc_indirect ? MAXINDIRECT : 4;
+	drive->d_qsize = sc->sc_vq->vq_num;
 	drive->d_maxxfer = sc->sc_maxxfer;
 	drive->d_removable = B_FALSE;
 	drive->d_hotpluggable = B_TRUE;
@@ -604,8 +480,8 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	}
 
 	mutex_enter(&sc->lock_devid);
-	/* non-indirect call is fine here */
-	ret = vioblk_rw_indirect(sc, &xfer, VIRTIO_BLK_T_GET_ID,
+
+	ret = vioblk_rw(sc, &xfer, VIRTIO_BLK_T_GET_ID,
 	    VIRTIO_BLK_ID_BYTES);
 	if (ret) {
 		mutex_exit(&sc->lock_devid);
@@ -770,15 +646,15 @@ vioblk_dev_features(struct vioblk_softc *sc)
 	    VIRTIO_BLK_F_SIZE_MAX |
 	    VIRTIO_F_RING_INDIRECT_DESC);
 
-	if (!(sc->sc_virtio.sc_features & VIRTIO_BLK_F_BLK_SIZE)) {
-		dev_err(sc->sc_dev, CE_NOTE,
-		    "Error while negotiating host features");
-		return (DDI_FAILURE);
-	}
-
 	vioblk_show_features(sc, "Host features: ", host_features);
 	vioblk_show_features(sc, "Negotiated features: ",
 	    sc->sc_virtio.sc_features);
+
+	if (!(sc->sc_virtio.sc_features & VIRTIO_F_RING_INDIRECT_DESC)) {
+		dev_err(sc->sc_dev, CE_NOTE,
+		    "Host does not support RING_INDIRECT_DESC, bye.");
+		return (DDI_FAILURE);
+	}
 
 	return (DDI_SUCCESS);
 }
@@ -965,7 +841,6 @@ vioblk_ksupdate(kstat_t *ksp, int rw)
 	if (rw == KSTAT_WRITE)
 		return (EACCES);
 
-
 	/* XXX: A virtual kstat would be simpler here. */
 	sc->ks_data->sts_rw_cookiesmax.value.ui32 = sc->sc_stats.rw_cookiesmax;
 	sc->ks_data->sts_intr_queuemax.value.ui32 = sc->sc_stats.intr_queuemax;
@@ -982,7 +857,7 @@ vioblk_ksupdate(kstat_t *ksp, int rw)
 static int
 vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 {
-	int ret, instance, intr_types;
+	int ret, instance;
 	struct vioblk_softc *sc;
 	struct virtio_softc *vsc;
 	ddi_acc_handle_t pci_conf;
@@ -1032,15 +907,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	pci_config_teardown(&pci_conf);
 	if (ret)
 		goto exit_match;
-
-
-	/* Determine which types of interrupts supported */
-	ret = ddi_intr_get_supported_types(devinfo, &intr_types);
-	if ((ret != DDI_SUCCESS) || (!(intr_types & DDI_INTR_TYPE_FIXED))) {
-		dev_err(devinfo, CE_WARN,
-		    "fixed type interrupt is not supported");
-		goto exit_inttype;
-	}
 
 	cv_init(&sc->cv_devid, NULL, CV_DRIVER, NULL);
 	mutex_init(&sc->lock_devid, NULL, MUTEX_DRIVER, NULL);
@@ -1214,7 +1080,6 @@ exit_features:
 exit_intrstat:
 exit_map:
 	kstat_delete(sc->sc_intrstat);
-exit_inttype:
 	mutex_destroy(&sc->lock_devid);
 	cv_destroy(&sc->cv_devid);
 exit_match:
