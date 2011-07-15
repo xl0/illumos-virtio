@@ -52,7 +52,7 @@
 #define	VIRTIO_BLK_F_BLK_SIZE	(1<<6)
 #define	VIRTIO_BLK_F_SCSI	(1<<7)
 #define	VIRTIO_BLK_F_FLUSH	(1<<9)
-#define	VIRTIO_BLK_F_SECTOR_MAX (1<<10)
+#define	VIRTIO_BLK_F_TOPOLOGY	(1<<10)
 
 /* Configuration registers */
 #define	VIRTIO_BLK_CONFIG_CAPACITY	0 /* 64bit */
@@ -62,7 +62,7 @@
 #define	VIRTIO_BLK_CONFIG_GEOMETRY_H	18 /* 8bit */
 #define	VIRTIO_BLK_CONFIG_GEOMETRY_S	19 /* 8bit */
 #define	VIRTIO_BLK_CONFIG_BLK_SIZE	20 /* 32bit */
-#define	VIRTIO_BLK_CONFIG_SECTOR_MAX	24 /* 32bit */
+#define	VIRTIO_BLK_CONFIG_TOPOLOGY	24 /* 32bit */
 
 /* Command */
 #define	VIRTIO_BLK_T_IN			0
@@ -81,8 +81,8 @@
 #define	VIRTIO_BLK_S_IOERR	1
 #define	VIRTIO_BLK_S_UNSUPP	2
 
-#define	MAXPHYS			(1024*1024)
-#define	MAXINDIRECT		(128)
+#define	DEF_MAXINDIRECT		(128)
+#define	DEF_MAXSECTOR		(4096)
 
 /*
  * Static Variables.
@@ -143,12 +143,11 @@ struct vioblk_softc {
 	struct vioblk_lstats	sc_stats;
 	short			sc_blkflags;
 	boolean_t		sc_in_poll_mode;
-	int			sc_readonly;
+	boolean_t		sc_readonly;
 	int			sc_blk_size;
 	int			sc_seg_max;
 	int			sc_size_max;
 	int			sc_sector_max;
-	int			sc_maxxfer;
 	kmutex_t		lock_devid;
 	kcondvar_t		cv_devid;
 	char			devid[VIRTIO_BLK_ID_BYTES + 1];
@@ -373,7 +372,7 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_IN,
-		    xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * DEV_BSIZE);
 	} else {
 		if (sc->sc_in_poll_mode) {
 			virtio_start_vq_intr(sc->sc_vq);
@@ -381,7 +380,7 @@ vioblk_read(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_IN,
-		    xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * DEV_BSIZE);
 	}
 
 	return (ret);
@@ -400,7 +399,7 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw_poll(sc, xfer, VIRTIO_BLK_T_OUT,
-		    xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * DEV_BSIZE);
 	} else {
 		if (sc->sc_in_poll_mode) {
 			virtio_start_vq_intr(sc->sc_vq);
@@ -408,7 +407,7 @@ vioblk_write(void *arg, bd_xfer_t *xfer)
 		}
 
 		ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_OUT,
-		    xfer->x_nblks * sc->sc_blk_size);
+		    xfer->x_nblks * DEV_BSIZE);
 	}
 	return (ret);
 }
@@ -422,7 +421,7 @@ vioblk_flush(void *arg, bd_xfer_t *xfer)
 	ASSERT((xfer->x_flags & BD_XFER_POLL) == 0);
 
 	ret = vioblk_rw(sc, xfer, VIRTIO_BLK_T_FLUSH_OUT,
-	    xfer->x_nblks * sc->sc_blk_size);
+	    xfer->x_nblks * DEV_BSIZE);
 
 	if (!ret)
 		sc->sc_stats.rw_cacheflush++;
@@ -437,7 +436,6 @@ vioblk_driveinfo(void *arg, bd_drive_t *drive)
 	struct vioblk_softc *sc = (void *)arg;
 
 	drive->d_qsize = sc->sc_vq->vq_num;
-	drive->d_maxxfer = sc->sc_maxxfer;
 	drive->d_removable = B_FALSE;
 	drive->d_hotpluggable = B_TRUE;
 	drive->d_target = 0;
@@ -450,7 +448,7 @@ vioblk_mediainfo(void *arg, bd_media_t *media)
 	struct vioblk_softc *sc = (void *)arg;
 
 	media->m_nblks = sc->sc_nblks;
-	media->m_blksize = sc->sc_blk_size;
+	media->m_blksize = DEV_BSIZE;
 	media->m_readonly = sc->sc_readonly;
 	return (0);
 }
@@ -621,9 +619,9 @@ vioblk_show_features(struct vioblk_softc *sc, const char *prefix,
 	if (features & VIRTIO_BLK_F_FLUSH)
 		/* LINTED E_PTRDIFF_OVERFLOW */
 		bufp += snprintf(bufp, bufend - bufp, "FLUSH ");
-	if (features & VIRTIO_BLK_F_SECTOR_MAX)
+	if (features & VIRTIO_BLK_F_TOPOLOGY)
 		/* LINTED E_PTRDIFF_OVERFLOW */
-		bufp += snprintf(bufp, bufend - bufp, "SECTOR_MAX ");
+		bufp += snprintf(bufp, bufend - bufp, "TOPOLOGY ");
 
 	/* LINTED E_PTRDIFF_OVERFLOW */
 	bufp += snprintf(bufp, bufend - bufp, ")");
@@ -966,14 +964,18 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_features;
 
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_RO)
-		sc->sc_readonly = 1;
+		sc->sc_readonly = B_TRUE;
 	else
-		sc->sc_readonly = 0;
+		sc->sc_readonly = B_FALSE;
 
 	sc->sc_capacity = virtio_read_device_config_8(&sc->sc_virtio,
 	    VIRTIO_BLK_CONFIG_CAPACITY);
 	sc->sc_nblks = sc->sc_capacity;
 
+	/*
+	 * BLK_SIZE is just a hint for the optimal logical block
+	 * granularity. Ignored for now.
+	 */
 	sc->sc_blk_size = DEV_BSIZE;
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_BLK_SIZE) {
 		sc->sc_blk_size = virtio_read_device_config_4(&sc->sc_virtio,
@@ -996,37 +998,55 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		    VIRTIO_BLK_CONFIG_GEOMETRY_S);
 	}
 #endif
+	sc->sc_seg_max = DEF_MAXINDIRECT;
+	/* The max number of segments (cookies) in a request */
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SEG_MAX) {
 		sc->sc_seg_max = virtio_read_device_config_4(&sc->sc_virtio,
 		    VIRTIO_BLK_CONFIG_SEG_MAX);
-		if (sc->sc_seg_max) {
-			vioblk_bd_dma_attr.dma_attr_sgllen = sc->sc_seg_max;
-		}
+
+		/* That's what Linux does. */
+		if (!sc->sc_seg_max)
+			sc->sc_seg_max = 1;
+
+		/* That's also what Linux does. It seems that SEG_MAX
+		 * corresponds to the number of _data_ blocks in a
+		 * request. */
+		sc->sc_seg_max += 2;
 	}
+	/* 2 descriptors taken for header/status */
+	vioblk_bd_dma_attr.dma_attr_sgllen = sc->sc_seg_max - 2;
+
+
+	/* The maximum (optimal) size for a cookie in a request. */
+	sc->sc_sector_max = DEF_MAXSECTOR;
+	/*
+	 * The linux ****tards ****** with the virtio spec here. See linux
+	 * commit 69740c8b and check the virtio spec. Just ignore it until
+	 * this is sorted out.
+	 */
+#if 0
+	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_TOPOLOGY) {
+		sc->sc_sector_max = virtio_read_device_config_4(&sc->sc_virtio,
+		    VIRTIO_BLK_CONFIG_TOPOLOGY);
+	}
+#endif
+
+	/* The maximum request size */
+	sc->sc_size_max = vioblk_bd_dma_attr.dma_attr_sgllen *
+	    sc->sc_sector_max;
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SIZE_MAX) {
 		sc->sc_size_max = virtio_read_device_config_4(&sc->sc_virtio,
 		    VIRTIO_BLK_CONFIG_SIZE_MAX);
-		if (sc->sc_size_max) {
-			vioblk_bd_dma_attr.dma_attr_maxxfer = sc->sc_size_max;
-		}
 	}
-	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SECTOR_MAX) {
-		sc->sc_sector_max = virtio_read_device_config_4(&sc->sc_virtio,
-		    VIRTIO_BLK_CONFIG_SECTOR_MAX);
-	}
-	if (sc->sc_sector_max)
-		sc->sc_maxxfer = sc->sc_sector_max * sc->sc_blk_size;
-	else
-		sc->sc_maxxfer = MAXPHYS;
+	vioblk_bd_dma_attr.dma_attr_maxxfer = sc->sc_size_max;
 
 	dev_err(devinfo, CE_NOTE, "nblks=%d blksize=%d maxxfer=%d "
-	    "dma_maxxfer %ld dma_segs %ld",
-	    sc->sc_nblks, sc->sc_blk_size, sc->sc_maxxfer,
-	    vioblk_bd_dma_attr.dma_attr_maxxfer,
+	    "max data segments %d",
+	    sc->sc_nblks, sc->sc_blk_size, sc->sc_size_max,
 	    vioblk_bd_dma_attr.dma_attr_sgllen);
 
 	sc->sc_vq = virtio_alloc_vq(&sc->sc_virtio, 0, 0,
-	    MAXINDIRECT, "I/O request");
+	    sc->sc_seg_max, "I/O request");
 	if (sc->sc_vq == NULL) {
 		goto exit_alloc1;
 	}
