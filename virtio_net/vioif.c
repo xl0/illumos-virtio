@@ -1347,6 +1347,7 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	if (ret)
 		goto exit_features;
 
+	vioif_get_mac(sc);
 
 	vsc->sc_nvqs = vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ) ? 3 : 2;
 
@@ -1421,7 +1422,6 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_ints;
 	}
 
-	vioif_get_mac(sc);
 
 	return (DDI_SUCCESS);
 
