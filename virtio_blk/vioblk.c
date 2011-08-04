@@ -275,8 +275,6 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	req->hdr.sector = xfer->x_blkno;
 	req->xfer = xfer;
 
-	ASSERT(xfer->x_ndmac);
-
 	virtio_ve_set_indirect(ve_hdr, xfer->x_ndmac + 2, B_TRUE);
 
 	/* sending header */
