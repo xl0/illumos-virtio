@@ -571,7 +571,7 @@ virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
 
 	flags |= VRING_DESC_F_NEXT;
 	for (i = 0; i < ncookies; i++) {
-		qe->ind_next[i].addr = dma_cookie.dmac_address;
+		qe->ind_next[i].addr = dma_cookie.dmac_laddress;
 		qe->ind_next[i].len =
 		    (dma_cookie.dmac_size & 0xFFFFFFFF);
 		qe->ind_next[i].flags = flags;
