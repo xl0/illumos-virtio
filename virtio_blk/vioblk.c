@@ -84,6 +84,8 @@
 #define	DEF_MAXINDIRECT		(128)
 #define	DEF_MAXSECTOR		(4096)
 
+#define	VIOBLK_POISON		0xdead0001dead0001
+
 /*
  * Static Variables.
  */
@@ -675,6 +677,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 	while ((ve = virtio_pull_chain(sc->sc_vq, &len))) {
 		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
 		bd_xfer_t *xfer = req->xfer;
+		req->xfer = (void *) VIOBLK_POISON;
 
 		/* syncing status */
 		(void) ddi_dma_sync(req->dmah, sizeof (struct vioblk_req_hdr),
