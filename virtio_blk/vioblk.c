@@ -677,6 +677,9 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 	while ((ve = virtio_pull_chain(sc->sc_vq, &len))) {
 		struct vioblk_req *req = &sc->sc_reqs[ve->qe_index];
 		bd_xfer_t *xfer = req->xfer;
+		uint8_t status = req->status;
+		uint32_t type = req->hdr.type;
+
 		req->xfer = (void *) VIOBLK_POISON;
 
 		/* syncing status */
@@ -687,7 +690,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		virtio_free_chain(ve);
 
 		/* returning payload back to blkdev */
-		switch (req->status) {
+		switch (status) {
 			case VIRTIO_BLK_S_OK:
 				error = 0;
 				break;
@@ -709,7 +712,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		* Note: blkdev syncs the handle and tears down the
 		* payload mapping for us.
 		*/
-		if (req->hdr.type == VIRTIO_BLK_T_GET_ID) {
+		if (type == VIRTIO_BLK_T_GET_ID) {
 			/* notify devid_init */
 			mutex_enter(&sc->lock_devid);
 			cv_broadcast(&sc->cv_devid);
