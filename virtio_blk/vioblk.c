@@ -680,6 +680,13 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		uint8_t status = req->status;
 		uint32_t type = req->hdr.type;
 
+		if (req->xfer == (void * )VIOBLK_POISON) {
+			dev_err(sc->sc_dev, CE_WARN, "Poisoned descriptor!");
+			virtio_free_chain(ve);
+			return (DDI_INTR_CLAIMED);
+		}
+
+
 		req->xfer = (void *) VIOBLK_POISON;
 
 		/* syncing status */
