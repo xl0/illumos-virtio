@@ -176,6 +176,7 @@ struct virtio_net_ctrl_vlan {
 	uint16_t id;
 } __packed;
 
+static int vioif_quiesce(dev_info_t *);
 static int vioif_attach(dev_info_t *, ddi_attach_cmd_t);
 static int vioif_detach(dev_info_t *, ddi_detach_cmd_t);
 
@@ -188,7 +189,7 @@ DDI_DEFINE_STREAM_OPS(vioif_ops,
 	NULL,			/* cb_ops */
 	D_MP,			/* bus_ops */
 	NULL,			/* power */
-	ddi_quiesce_not_supported /* quiesce */
+	vioif_quiesce		/* quiesce */
 );
 
 static char vioif_ident[] = "VirtIO ethernet driver";
@@ -1499,6 +1500,18 @@ vioif_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	kmem_cache_destroy(sc->sc_rxbuf_cache);
 	kstat_delete(sc->sc_intrstat);
 	kmem_free(sc, sizeof (struct vioif_softc));
+
+	return (DDI_SUCCESS);
+}
+
+static int
+vioif_quiesce(dev_info_t *devinfo)
+{
+	struct vioif_softc *sc = ddi_get_driver_private(devinfo);
+
+	virtio_stop_vq_intr(sc->sc_rx_vq);
+	virtio_stop_vq_intr(sc->sc_tx_vq);
+	virtio_device_reset(&sc->sc_virtio);
 
 	return (DDI_SUCCESS);
 }
