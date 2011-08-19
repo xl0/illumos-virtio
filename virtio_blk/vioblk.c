@@ -173,6 +173,7 @@ static bd_ops_t vioblk_ops = {
 	vioblk_write,
 };
 
+static int vioblk_quiesce(dev_info_t *);
 static int vioblk_attach(dev_info_t *, ddi_attach_cmd_t);
 static int vioblk_detach(dev_info_t *, ddi_detach_cmd_t);
 
@@ -188,7 +189,7 @@ static struct dev_ops vioblk_dev_ops = {
 	NULL,		/* cb_ops */
 	NULL,		/* bus_ops */
 	NULL,		/* power */
-	ddi_quiesce_not_supported /* quiesce */
+	vioblk_quiesce	/* quiesce */
 };
 
 
@@ -1148,6 +1149,17 @@ vioblk_detach(dev_info_t *devinfo, ddi_detach_cmd_t cmd)
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
 	kstat_delete(sc->sc_intrstat);
 	kmem_free(sc, sizeof (struct vioblk_softc));
+
+	return (DDI_SUCCESS);
+}
+
+static int
+vioblk_quiesce(dev_info_t *devinfo)
+{
+	struct vioblk_softc *sc = ddi_get_driver_private(devinfo);
+
+	virtio_stop_vq_intr(sc->sc_vq);
+	virtio_device_reset(&sc->sc_virtio);
 
 	return (DDI_SUCCESS);
 }
