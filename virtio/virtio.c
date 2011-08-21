@@ -1031,8 +1031,9 @@ virtio_register_intx(struct virtio_softc *sc,
 	if (config_handler)
 		config_handler_count = 1;
 
-	vhc = kmem_alloc(sizeof (struct virtio_int_handler) *
-	    (vq_handler_count + config_handler_count), KM_SLEEP);
+	vhc = kmem_zalloc(sizeof (struct virtio_handler_container) +
+	    sizeof (struct virtio_int_handler) * vq_handler_count,
+	    KM_SLEEP);
 	if (!vhc) {
 		dev_err(sc->sc_dev, CE_WARN, "Failed to allocate memory "
 		    "for the handler container");
@@ -1046,9 +1047,6 @@ virtio_register_intx(struct virtio_softc *sc,
 	if (config_handler) {
 		(void) memcpy(&vhc->config_handler, config_handler,
 		    sizeof (struct virtio_int_handler));
-	} else {
-		memset(&vhc->config_handler, 0,
-		    sizeof(struct virtio_int_handler));
 	}
 
 	sc->sc_intr_htable = kmem_zalloc(sizeof (ddi_intr_handle_t), KM_SLEEP);
