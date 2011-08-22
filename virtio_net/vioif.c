@@ -1298,8 +1298,6 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	vsc = &sc->sc_virtio;
 
-	virtio_init(vsc);
-
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
 	vsc->sc_dev = devinfo;

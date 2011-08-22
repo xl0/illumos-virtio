@@ -155,7 +155,6 @@ struct virtio_int_handler {
 
 /* public interface */
 
-void virtio_init(struct virtio_softc *sc);
 uint32_t virtio_negotiate_features(struct virtio_softc *, uint32_t);
 size_t virtio_show_features(uint32_t features, char *buffer, size_t len);
 boolean_t virtio_has_feature(struct virtio_softc *sc, uint32_t feature);

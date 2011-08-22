@@ -76,12 +76,6 @@
 #define	MINSEG_INDIRECT	2	/* use indirect if nsegs >= this value */
 
 void
-virtio_init(struct virtio_softc *sc)
-{
-	sc->sc_config_offset = VIRTIO_CONFIG_DEVICE_CONFIG_NOMSI;
-}
-
-void
 virtio_set_status(struct virtio_softc *sc, int status)
 {
 	int old = 0;

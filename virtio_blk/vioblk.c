@@ -900,7 +900,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	ddi_set_driver_private(devinfo, sc);
 
 	vsc = &sc->sc_virtio;
-	virtio_init(vsc);
 
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
@@ -970,6 +969,11 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	virtio_device_reset(&sc->sc_virtio);
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_ACK);
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
+
+	if (vioblk_register_ints(sc)) {
+		dev_err(devinfo, CE_WARN, "Unable to add interrupt");
+		goto exit_int;
+	}
 
 	ret = vioblk_dev_features(sc);
 	if (ret)
@@ -1057,13 +1061,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	    sc->sc_nblks, sc->sc_blk_size, sc->sc_size_max,
 	    vioblk_bd_dma_attr.dma_attr_sgllen);
 
-	/*
-	 * Establish interrupt handler.
-	 */
-	if (vioblk_register_ints(sc)) {
-		dev_err(devinfo, CE_WARN, "Unable to add interrupt");
-		goto exit_int;
-	}
 
 	sc->sc_vq = virtio_alloc_vq(&sc->sc_virtio, 0, 0,
 	    sc->sc_seg_max, "I/O request");
