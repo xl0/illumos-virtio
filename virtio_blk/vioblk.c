@@ -1032,7 +1032,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* The maximum (optimal) size for a cookie in a request. */
 	sc->sc_sector_max = DEF_MAXSECTOR;
 	/*
-	 * The linux ****tards ****** with the virtio spec here. See linux
+	 * The linux ****tards ****** up with the virtio spec here. See linux
 	 * commit 69740c8b and check the virtio spec. Just ignore it until
 	 * this is sorted out.
 	 */
@@ -1070,7 +1070,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	if (sc->sc_vq == NULL) {
 		goto exit_alloc1;
 	}
-	virtio_stop_vq_intr(sc->sc_vq);
 
 	ret = vioblk_alloc_reqs(sc);
 	if (ret) {
@@ -1089,6 +1088,10 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	    VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 	virtio_start_vq_intr(sc->sc_vq);
 
+	ret = virtio_enable_ints(&sc->sc_virtio);
+	if (ret)
+		goto exit_enable_ints;
+
 	ret = bd_attach_handle(devinfo, sc->bd_h);
 	if (ret != DDI_SUCCESS) {
 		dev_err(devinfo, CE_WARN, "Failed to attach blkdev");
@@ -1098,6 +1101,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	return (DDI_SUCCESS);
 
 exit_attach_bd:
+exit_enable_ints:
 	virtio_stop_vq_intr(sc->sc_vq);
 exit_alloc_bd:
 	vioblk_free_reqs(sc);

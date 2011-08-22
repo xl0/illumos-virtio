@@ -1329,7 +1329,6 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 	kstat_install(sc->sc_intrstat);
 
-
 	/* map BAR 0 */
 	ret = ddi_regs_map_setup(devinfo, 1,
 	    (caddr_t *)&sc->sc_virtio.sc_io_addr,
@@ -1348,8 +1347,6 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	if (ret)
 		goto exit_features;
 
-	vioif_get_mac(sc);
-
 	vsc->sc_nvqs = vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ) ? 3 : 2;
 
 	sc->sc_rxbuf_cache = kmem_cache_create("vioif_rx",
@@ -1361,15 +1358,30 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_cache;
 	}
 
+	ret = vioif_register_ints(sc);
+	if (ret) {
+		dev_err(sc->sc_dev, CE_WARN,
+		    "Failed to allocate interrupt(s)!");
+		goto exit_ints;
+	}
+
+	/*
+	 * Register layput determined, can now access the
+	 * device-speciffc bits
+	 */
+	vioif_get_mac(sc);
+
 	sc->sc_rx_vq = virtio_alloc_vq(&sc->sc_virtio, 0,
 	    VIOIF_RX_QLEN, 0, "rx");
 	if (!sc->sc_rx_vq)
 		goto exit_alloc1;
+	virtio_stop_vq_intr(sc->sc_rx_vq);
 
 	sc->sc_tx_vq = virtio_alloc_vq(&sc->sc_virtio, 1,
 	    VIOIF_TX_QLEN, 0, "tx");
 	if (!sc->sc_rx_vq)
 		goto exit_alloc2;
+	virtio_stop_vq_intr(sc->sc_tx_vq);
 
 	if (vioif_has_feature(sc, VIRTIO_NET_F_CTRL_VQ)) {
 		sc->sc_ctrl_vq = virtio_alloc_vq(&sc->sc_virtio, 2,
@@ -1380,8 +1392,8 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		virtio_stop_vq_intr(sc->sc_ctrl_vq);
 	}
 
-	virtio_stop_vq_intr(sc->sc_rx_vq);
-	virtio_stop_vq_intr(sc->sc_tx_vq);
+	virtio_set_status(&sc->sc_virtio,
+	    VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
 
 	if (vioif_alloc_mems(sc))
 		goto exit_alloc_mems;
@@ -1406,9 +1418,6 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* Pre-fill the rx ring. */
 	(void) vioif_populate_rx(sc, KM_SLEEP);
-	virtio_set_status(&sc->sc_virtio,
-	    VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
-
 
 	ret = mac_register(macp, &sc->sc_mac_handle);
 	if (ret) {
@@ -1416,29 +1425,30 @@ vioif_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		goto exit_register;
 	}
 
-	ret = vioif_register_ints(sc);
+	ret = virtio_enable_ints(&sc->sc_virtio);
 	if (ret) {
-		dev_err(sc->sc_dev, CE_WARN,
-		    "Failed to allocate interrupt(s)!");
-		goto exit_ints;
+		dev_err(devinfo, CE_WARN, "Failed to enable interrupts");
+		goto exit_enable_ints;
 	}
-
 
 	return (DDI_SUCCESS);
 
+exit_enable_ints:
+	mac_unregister(sc->sc_mac_handle);
 exit_register:
 	mac_free(macp);
 exit_macalloc:
 	vioif_free_mems(sc);
 exit_alloc_mems:
 	virtio_release_ints(&sc->sc_virtio);
-exit_ints:
-	virtio_free_vq(sc->sc_ctrl_vq);
+	if (sc->sc_ctrl_vq)
+		virtio_free_vq(sc->sc_ctrl_vq);
 exit_alloc3:
 	virtio_free_vq(sc->sc_tx_vq);
 exit_alloc2:
 	virtio_free_vq(sc->sc_rx_vq);
 exit_alloc1:
+exit_ints:
 	kmem_cache_destroy(sc->sc_rxbuf_cache);
 exit_cache:
 exit_features:

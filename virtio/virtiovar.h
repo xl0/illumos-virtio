@@ -144,6 +144,7 @@ struct virtio_softc {
 
 	ddi_intr_handle_t	*sc_intr_htable;
 	int			sc_intr_num;
+	boolean_t		sc_intr_config;
 	int			sc_intr_cap;
 };
 
@@ -198,5 +199,6 @@ int virtio_register_ints(struct virtio_softc *sc,
 		struct virtio_int_handler *config_handler,
 		struct virtio_int_handler vq_handlers[]);
 void virtio_release_ints(struct virtio_softc *sc);
+int virtio_enable_ints(struct virtio_softc *sc);
 
 #endif /* _DEV_PCI_VIRTIOVAR_H_ */
