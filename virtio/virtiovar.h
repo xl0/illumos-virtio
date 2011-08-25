@@ -82,7 +82,15 @@
 typedef boolean_t bool;
 #define	__packed  __attribute__((packed))
 
+#define QE_POISON1_FREE	0x1234111112341111ULL
+#define QE_POISON1_USED	0x4321111143211111ULL
+
+#define QE_POISON2_FREE	0x1234222212342222ULL
+#define QE_POISON2_USED	0x4321222243212222ULL
+
+
 struct vq_entry {
+	uint64_t		qe_guard1;
 	list_node_t		qe_list;
 	struct virtqueue	*qe_queue;
 	uint16_t		qe_index; /* index in vq_desc array */
@@ -92,6 +100,7 @@ struct vq_entry {
 	struct vq_entry		*qe_next;
 	struct vring_desc	*qe_desc;
 	struct vring_desc	*ind_next;
+	uint64_t		qe_guard2;
 };
 
 struct virtqueue {
@@ -125,7 +134,9 @@ struct virtqueue {
 
 	/* enqueue/dequeue status */
 	uint16_t		vq_avail_idx;
+	kmutex_t		vq_avail_lock;
 	uint16_t		vq_used_idx;
+	kmutex_t		vq_used_lock;
 };
 
 struct virtio_softc {

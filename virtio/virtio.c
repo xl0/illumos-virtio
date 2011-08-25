@@ -273,7 +273,7 @@ static ddi_device_acc_attr_t virtio_vq_devattr = {
 };
 
 /*
- * Initialize vq structure.
+ * Initialize the vq structure.
  */
 static void
 virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
@@ -292,6 +292,9 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 		vq->vq_entries[i].qe_desc = &vq->vq_descs[i];
 		vq->vq_entries[i].qe_queue = vq;
 
+		vq->vq_entries[i].qe_guard1 = QE_POISON1_FREE;
+		vq->vq_entries[i].qe_guard2 = QE_POISON2_FREE;
+
 		/* build the indirect descriptor chain */
 		if (vq->vq_indirect != NULL) {
 			struct vring_desc *vd = vq->vq_indirect;
@@ -301,7 +304,11 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 		}
 	}
 
-	mutex_init(&vq->vq_freelist_lock, "virtio",
+	mutex_init(&vq->vq_freelist_lock, "virtio-freelist",
+	    MUTEX_DRIVER, DDI_INTR_PRI(sc->sc_intr_prio));
+	mutex_init(&vq->vq_avail_lock, "virtio-avail",
+	    MUTEX_DRIVER, DDI_INTR_PRI(sc->sc_intr_prio));
+	mutex_init(&vq->vq_used_lock, "virtio-used",
 	    MUTEX_DRIVER, DDI_INTR_PRI(sc->sc_intr_prio));
 }
 
@@ -421,7 +428,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 
 	/* free slot management */
 	vq->vq_entries = kmem_zalloc(sizeof (struct vq_entry) * vq_size,
-	    KM_NOSLEEP);
+	    KM_SLEEP);
 	if (!vq->vq_entries) {
 		dev_err(sc->sc_dev, CE_NOTE,
 		    "Failed to allocate slow array for vq %d", index);
@@ -474,6 +481,8 @@ virtio_free_vq(struct virtqueue *vq)
 	ddi_dma_mem_free(&vq->vq_dma_acch);
 	ddi_dma_free_handle(&vq->vq_dma_handle);
 
+	mutex_destroy(&vq->vq_used_lock);
+	mutex_destroy(&vq->vq_avail_lock);
 	mutex_destroy(&vq->vq_freelist_lock);
 
 	kmem_free(vq, sizeof (struct virtqueue));
@@ -499,6 +508,13 @@ vq_alloc_entry(struct virtqueue *vq)
 
 	mutex_exit(&vq->vq_freelist_lock);
 
+	ASSERT(qe->qe_guard1 == QE_POISON1_FREE);
+	ASSERT(qe->qe_guard2 == QE_POISON2_FREE);
+
+	qe->qe_guard1 = QE_POISON1_USED;
+	qe->qe_guard2 = QE_POISON2_USED;
+
+
 	qe->qe_next = NULL;
 	qe->ind_next = NULL;
 	(void) memset(qe->qe_desc, 0, sizeof (struct vring_desc));
@@ -510,6 +526,14 @@ void
 vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 {
 	mutex_enter(&vq->vq_freelist_lock);
+
+	ASSERT(qe->qe_guard1 == QE_POISON1_USED);
+	ASSERT(qe->qe_guard2 == QE_POISON2_USED);
+
+	qe->qe_guard1 = QE_POISON1_FREE;
+	qe->qe_guard2 = QE_POISON2_FREE;
+
+
 	list_insert_head(&vq->vq_freelist, qe);
 	vq->vq_used_entries--;
 	ASSERT(vq->vq_used_entries >= 0);
@@ -629,7 +653,10 @@ virtio_sync_vq(struct virtqueue *vq)
 	 * Yes, we need to make sure the device sees the idx update after
 	 * it sees the ring update.
 	 */
+	mutex_enter(&vq->vq_avail_lock);
+	/* Locking probably unneeded on any sane architecture. Just in case.*/
 	vq->vq_avail->idx = vq->vq_avail_idx;
+	mutex_exit(&vq->vq_avail_lock);
 
 	/* Sync the idx and flags */
 	(void) ddi_dma_sync(vq->vq_dma_handle, vq->vq_availoffset,
@@ -657,6 +684,9 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 	 * set with virtio_ve_set
 	 */
 	do {
+		ASSERT(qe->qe_guard1 == QE_POISON1_USED);
+		ASSERT(qe->qe_guard2 == QE_POISON2_USED);
+
 		if (qe->qe_next) {
 			qe->qe_desc->flags |= VRING_DESC_F_NEXT;
 			qe->qe_desc->next = qe->qe_next->qe_index;
@@ -671,7 +701,11 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 		prev->flags &= ~VRING_DESC_F_NEXT;
 	}
 
-	idx = atomic_inc_16_nv(&vq->vq_avail_idx) - 1;
+	mutex_enter(&vq->vq_avail_lock);
+	idx = vq->vq_avail_idx;
+	vq->vq_avail_idx++;
+	mutex_exit(&vq->vq_avail_lock);
+
 	vq->vq_avail->ring[idx % vq->vq_num] = head->qe_index;
 
 	if (sync)
@@ -688,6 +722,7 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	int slot;
 	int usedidx;
 
+	mutex_enter(&vq->vq_used_lock);
 	/*
 	 * Sync idx (and flags), but only if we don't have any backlog
 	 * from the previous sync.
@@ -697,12 +732,16 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 		    sizeof (struct vring_used), DDI_DMA_SYNC_FORKERNEL);
 
 		/* Still nothing? Bye. */
-		if (vq->vq_used_idx == vq->vq_used->idx)
+		if (vq->vq_used_idx == vq->vq_used->idx) {
+			mutex_exit(&vq->vq_used_lock);
 			return (NULL);
+		}
 	}
 
 
-	usedidx = atomic_inc_16_nv(&vq->vq_used_idx) - 1;
+	usedidx = vq->vq_used_idx;
+	vq->vq_used_idx++;
+	mutex_exit(&vq->vq_used_lock);
 
 	usedidx %= vq->vq_num;
 
@@ -721,9 +760,14 @@ virtio_pull_chain(struct virtqueue *vq, size_t *len)
 	    sizeof (struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
 	head = tmp = &vq->vq_entries[slot];
 
+	ASSERT(head->qe_guard1 == QE_POISON1_USED);
+	ASSERT(head->qe_guard2 == QE_POISON2_USED);
+
 	/* Sync the rest of the chain */
 	while (tmp->qe_next) {
 		tmp = tmp->qe_next;
+		ASSERT(tmp->qe_guard1 == QE_POISON1_USED);
+		ASSERT(tmp->qe_guard2 == QE_POISON2_USED);
 		(void) ddi_dma_sync(vq->vq_dma_handle,
 		    sizeof (struct vring_desc) * tmp->qe_index,
 		    sizeof (struct vring_desc), DDI_DMA_SYNC_FORKERNEL);
@@ -740,11 +784,15 @@ virtio_free_chain(struct vq_entry *ve)
 	ASSERT(ve);
 
 	while (ve->qe_next) {
+		ASSERT(ve->qe_guard1 == QE_POISON1_USED);
+		ASSERT(ve->qe_guard2 == QE_POISON2_USED);
 		tmp = ve->qe_next;
 		vq_free_entry(ve->qe_queue, ve);
 		ve = tmp;
 	}
 
+	ASSERT(ve->qe_guard1 == QE_POISON1_USED);
+	ASSERT(ve->qe_guard2 == QE_POISON2_USED);
 	vq_free_entry(ve->qe_queue, ve);
 }
 
