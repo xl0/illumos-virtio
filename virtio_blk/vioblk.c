@@ -463,6 +463,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	bd_xfer_t xfer;
 
 	deadline = ddi_get_lbolt() + (clock_t)drv_usectohz(3 * 1000000);
+	memset(&xfer, 0, sizeof (bd_xfer_t));
 	xfer.x_nblks = 1;
 
 	if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
