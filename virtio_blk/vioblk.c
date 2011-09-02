@@ -214,7 +214,7 @@ static struct modlinkage modlinkage = {
 ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,	/* virtio is always native byte order */
-	DDI_STRICTORDER_ACC
+	DDI_STORECACHING_OK_ACC
 };
 
 static ddi_dma_attr_t vioblk_req_dma_attr = {

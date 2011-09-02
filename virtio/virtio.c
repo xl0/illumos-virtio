@@ -269,7 +269,7 @@ static ddi_dma_attr_t virtio_vq_dma_attr = {
 static ddi_device_acc_attr_t virtio_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
-	DDI_STRICTORDER_ACC
+	DDI_STORECACHING_OK_ACC
 };
 
 /*
