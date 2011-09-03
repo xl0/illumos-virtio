@@ -662,7 +662,7 @@ static int vioif_rx_single(struct vioif_softc *sc)
 	struct vioif_buf *buf;
 
 	mblk_t *mp;
-	size_t len;
+	uint32_t len;
 
 	int i = 0;
 
@@ -711,14 +711,14 @@ static int vioif_rx_merged(struct vioif_softc *sc)
 	struct vioif_buf *buf;
 
 	mblk_t *mp;
-	size_t len;
+	uint32_t len;
 
 	int i = 0;
 
 	while ((ve = virtio_pull_chain(sc->sc_rx_vq, &len))) {
 
 		if (ve->qe_next) {
-			cmn_err(CE_NOTE, "Merged buffer len %ld", len);
+			cmn_err(CE_NOTE, "Merged buffer len %u", len);
 			virtio_free_chain(ve);
 			break;
 		}
@@ -797,9 +797,7 @@ static int vioif_process_rx(struct vioif_softc *sc)
 static void vioif_reclaim_used_tx(struct vioif_softc *sc)
 {
 	struct vq_entry *ve;
-
-	size_t len;
-
+	uint32_t len;
 	int i = 0;
 
 	while ((ve = virtio_pull_chain(sc->sc_tx_vq, &len))) {
@@ -817,8 +815,6 @@ vioif_send(struct vioif_softc *sc, mblk_t *mb)
 {
 	struct vq_entry *ve;
 	struct vq_entry *ve_hdr;
-
-
 	struct vioif_buf *buf;
 	struct vioif_buf *buf_hdr;
 	size_t msg_size = 0;

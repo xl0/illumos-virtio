@@ -278,13 +278,11 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	req->hdr.sector = xfer->x_blkno;
 	req->xfer = xfer;
 
-	virtio_ve_set_indirect(ve_hdr, xfer->x_ndmac + 2, B_TRUE);
-
 	/* sending header */
 	(void) ddi_dma_sync(req->dmah, 0, sizeof (struct vioblk_req_hdr),
 	    DDI_DMA_SYNC_FORDEV);
 
-	virtio_ve_add_buf(ve_hdr, req->dmac.dmac_laddress,
+	virtio_ve_add_indirect_buf(ve_hdr, req->dmac.dmac_laddress,
 	    sizeof (struct vioblk_req_hdr), B_TRUE);
 
 	/* sending payload */
@@ -295,7 +293,7 @@ vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
 	}
 
 	/* adding a buffer for the status */
-	virtio_ve_add_buf(ve_hdr,
+	virtio_ve_add_indirect_buf(ve_hdr,
 	    req->dmac.dmac_laddress + sizeof (struct vioblk_req_hdr),
 	    sizeof (uint8_t), B_FALSE);
 
@@ -672,7 +670,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 	    struct vioblk_softc, sc_virtio);
 
 	struct vq_entry *ve;
-	size_t len;
+	uint32_t len;
 	int i = 0, error;
 
 
