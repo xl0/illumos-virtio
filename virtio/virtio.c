@@ -881,7 +881,9 @@ virtio_pull_chain(struct virtqueue *vq, uint32_t *len)
 
 		ASSERT((!tmp->qe_next) ||
 		    tmp->qe_next->qe_index == tmp->qe_desc->next);
-	} while (tmp->qe_next);
+
+		tmp = tmp->qe_next;
+	} while (tmp);
 
 	return (head);
 }
