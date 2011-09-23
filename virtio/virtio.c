@@ -258,7 +258,7 @@ static ddi_dma_attr_t virtio_vq_dma_attr = {
 				 * after page-shifting
 				 */
 	0xFFFFFFFF,	/* counter register max */
-	VIRTIO_PAGE_SIZE, /* page alignment */
+	VIRTIO_PAGE_SIZE, /* page alignment required */
 	0x3F,		/* burst sizes: 1 - 32 */
 	0x1,		/* minimum transfer size */
 	0xFFFFFFFF,	/* max transfer size */
@@ -287,7 +287,8 @@ static ddi_dma_attr_t virtio_vq_indirect_dma_attr = {
 static ddi_device_acc_attr_t virtio_vq_devattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
-	DDI_STORECACHING_OK_ACC
+	DDI_STORECACHING_OK_ACC,
+	DDI_DEFAULT_ACC
 };
 
 static void
