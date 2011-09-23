@@ -214,7 +214,8 @@ static struct modlinkage modlinkage = {
 ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,	/* virtio is always native byte order */
-	DDI_STORECACHING_OK_ACC
+	DDI_STORECACHING_OK_ACC,
+	DDI_DEFAULT_ACC 
 };
 
 static ddi_dma_attr_t vioblk_req_dma_attr = {
@@ -222,14 +223,14 @@ static ddi_dma_attr_t vioblk_req_dma_attr = {
 	0,				/* dma_attr_addr_lo	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_addr_hi	*/
 	0x00000000FFFFFFFFull,		/* dma_attr_count_max	*/
-	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
-	0x1,				/* dma_attr_burstsizes	*/
-	0x1,				/* dma_attr_minxfer	*/
+	1,				/* dma_attr_align	*/
+	1,				/* dma_attr_burstsizes	*/
+	1,				/* dma_attr_minxfer	*/
 	0x40000000,			/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
 	1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
-	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags	*/
+	0,				/* dma_attr_flags	*/
 };
 
 static ddi_dma_attr_t vioblk_bd_dma_attr = {
@@ -237,14 +238,14 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	0,				/* dma_attr_addr_lo	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_addr_hi	*/
 	0x00000000FFFFFFFFull,		/* dma_attr_count_max	*/
-	VIRTIO_PAGE_SIZE,		/* dma_attr_align	*/
+	1,				/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
 	0x40000000,			/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
 	-1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
-	DDI_DMA_FORCE_PHYSICAL		/* dma_attr_flags	*/
+	0,				/* dma_attr_flags	*/
 };
 
 static int
