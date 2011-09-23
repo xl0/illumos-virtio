@@ -214,7 +214,8 @@ static struct modlinkage modlinkage = {
 ddi_device_acc_attr_t vioif_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,	/* virtio is always native byte order */
-	DDI_STORECACHING_OK_ACC	
+	DDI_STORECACHING_OK_ACC,
+	DDI_DEFAULT_ACC 
 };
 
 struct vioif_buf {
@@ -307,9 +308,9 @@ static ddi_dma_attr_t vioif_buf_dma_attr = {
 	0,		/* low address */
 	0xFFFFFFFF,	/* high address */
 	0xFFFFFFFF,	/* counter register max */
-	VIRTIO_PAGE_SIZE, /* page alignment */
-	0x3F,		/* burst sizes: 1 - 32 */
-	0x1,		/* minimum transfer size */
+	1,		/* page alignment */
+	1,		/* burst sizes: 1 - 32 */
+	1,		/* minimum transfer size */
 	0xFFFFFFFF,	/* max transfer size */
 	0xFFFFFFFF,	/* address register max */
 	1,		/* no scatter-gather */
@@ -320,7 +321,8 @@ static ddi_dma_attr_t vioif_buf_dma_attr = {
 static ddi_device_acc_attr_t vioif_bufattr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,
-	DDI_STRICTORDER_ACC
+	DDI_STORECACHING_OK_ACC,
+	DDI_DEFAULT_ACC 
 };
 
 static void vioif_rx_free(caddr_t free_arg)
