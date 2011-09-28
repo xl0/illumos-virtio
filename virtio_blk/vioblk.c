@@ -215,7 +215,7 @@ ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEVICE_ATTR_V0,
 	DDI_NEVERSWAP_ACC,	/* virtio is always native byte order */
 	DDI_STORECACHING_OK_ACC,
-	DDI_DEFAULT_ACC 
+	DDI_DEFAULT_ACC
 };
 
 static ddi_dma_attr_t vioblk_req_dma_attr = {
@@ -462,7 +462,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	bd_xfer_t xfer;
 
 	deadline = ddi_get_lbolt() + (clock_t)drv_usectohz(3 * 1000000);
-	memset(&xfer, 0, sizeof (bd_xfer_t));
+	(void) memset(&xfer, 0, sizeof (bd_xfer_t));
 	xfer.x_nblks = 1;
 
 	if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
@@ -681,7 +681,7 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		uint8_t status = req->status;
 		uint32_t type = req->hdr.type;
 
-		if (req->xfer == (void * )VIOBLK_POISON) {
+		if (req->xfer == (void *)VIOBLK_POISON) {
 			dev_err(sc->sc_dev, CE_WARN, "Poisoned descriptor!");
 			virtio_free_chain(ve);
 			return (DDI_INTR_CLAIMED);
@@ -717,9 +717,9 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 		}
 
 		/*
-		* Note: blkdev syncs the handle and tears down the
-		* payload mapping for us.
-		*/
+		 * Note: blkdev syncs the handle and tears down the
+		 * payload mapping for us.
+		 */
 		if (type == VIRTIO_BLK_T_GET_ID) {
 			/* notify devid_init */
 			mutex_enter(&sc->lock_devid);
@@ -1024,9 +1024,11 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		if (!sc->sc_seg_max)
 			sc->sc_seg_max = 1;
 
-		/* That's also what Linux does. It seems that SEG_MAX
+		/*
+		 * That's also what Linux does. It seems that SEG_MAX
 		 * corresponds to the number of _data_ blocks in a
-		 * request. */
+		 * request.
+		 */
 		sc->sc_seg_max += 2;
 	}
 	/* 2 descriptors taken for header/status */
