@@ -253,10 +253,11 @@ virtio_start_vq_intr(struct virtqueue *vq)
 static ddi_dma_attr_t virtio_vq_dma_attr = {
 	DMA_ATTR_V0,	/* Version number */
 	0,		/* low address */
-	0x00000FFFFFFFFFFF,	/*
-				 * high address. Has to fit into 32 bits
-				 * after page-shifting
-				 */
+	/*
+	 * high address. Has to fit into 32 bits
+	 * after page-shifting
+	 */
+	0x00000FFFFFFFFFFF,
 	0xFFFFFFFF,	/* counter register max */
 	VIRTIO_PAGE_SIZE, /* page alignment required */
 	0x3F,		/* burst sizes: 1 - 32 */
@@ -373,7 +374,8 @@ out_alloc_handle:
 static int
 virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq)
 {
-	int i, ret;
+	int ret;
+	uint16_t i;
 	int vq_size = vq->vq_num;
 	int indirect_num = vq->vq_indirect_num;
 
@@ -753,14 +755,14 @@ virtio_ve_sync_desc(struct vq_entry *qe, unsigned int direction)
 	/* Sync the descriptor */
 	/* (The descriptor array is located at the start of the vq memory) */
 	(void) ddi_dma_sync(vq->vq_dma_handle,
-	    sizeof(struct vring_desc) * qe->qe_index,
-	    sizeof(struct vring_desc),
+	    sizeof (struct vring_desc) * qe->qe_index,
+	    sizeof (struct vring_desc),
 	    direction);
 
 	/* Sync the indirect descriptors as well */
 	if (qe->qe_indirect_next)
 		(void) ddi_dma_sync(qe->qe_indirect_dma_handle,
-		    0, sizeof(struct vring_desc) * qe->qe_indirect_next,
+		    0, sizeof (struct vring_desc) * qe->qe_indirect_next,
 		    direction);
 }
 
@@ -786,7 +788,7 @@ virtio_push_chain(struct vq_entry *qe, boolean_t sync)
 
 		/* Bind the indirect descriptors */
 		if (qe->qe_indirect_next > 1) {
-			int i = 0;
+			uint16_t i = 0;
 
 			/*
 			 * Set the pointer/flags to the

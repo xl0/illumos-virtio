@@ -82,11 +82,11 @@
 typedef boolean_t bool;
 #define	__packed  __attribute__((packed))
 
-#define QE_POISON1_FREE	0x1234111112341111ULL
-#define QE_POISON1_USED	0x4321111143211111ULL
+#define	QE_POISON1_FREE	0x1234111112341111ULL
+#define	QE_POISON1_USED	0x4321111143211111ULL
 
-#define QE_POISON2_FREE	0x1234222212342222ULL
-#define QE_POISON2_USED	0x4321222243212222ULL
+#define	QE_POISON2_FREE	0x1234222212342222ULL
+#define	QE_POISON2_USED	0x4321222243212222ULL
 
 
 struct vq_entry {
@@ -180,7 +180,7 @@ uint32_t virtio_read_device_config_4(struct virtio_softc *sc,
 uint64_t virtio_read_device_config_8(struct virtio_softc *sc,
 		unsigned int index);
 void virtio_write_device_config_1(struct virtio_softc *sc,
-		unsigned int index, uint8_t value );
+		unsigned int index, uint8_t value);
 void virtio_write_device_config_2(struct virtio_softc *sc,
 		unsigned int index, uint16_t value);
 void virtio_write_device_config_4(struct virtio_softc *sc,
@@ -202,8 +202,8 @@ void virtio_start_vq_intr(struct virtqueue *);
 
 void virtio_ve_add_cookie(struct vq_entry *qe, ddi_dma_handle_t dma_handle,
     ddi_dma_cookie_t dma_cookie, unsigned int ncookies, boolean_t write);
-void virtio_ve_add_indirect_buf(struct vq_entry *qe, uint64_t paddr, uint32_t len,
-    boolean_t write);
+void virtio_ve_add_indirect_buf(struct vq_entry *qe, uint64_t paddr,
+    uint32_t len, boolean_t write);
 void virtio_ve_set(struct vq_entry *qe, uint64_t paddr, uint32_t len,
 		boolean_t write);
 
