@@ -2,6 +2,13 @@
 #include <sys/dditypes.h>
 #include <sys/sysmacros.h>
 
+#ifdef DEBUG
+#define dev_debug(dip, fmt, arg...) \
+	dev_err(dip, fmt, ##arg)
+#else
+#define dev_debug(dip, fmt, arg...)
+#endif
+
 void dev_err(dev_info_t *dip, int ce, char *fmt, ...);
 void dev_panic(dev_info_t *dip, char *fmt, ...);
 
