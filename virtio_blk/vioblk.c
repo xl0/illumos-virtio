@@ -511,7 +511,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 		return (ret);
 	}
 
-	dev_err(sc->sc_dev, CE_NOTE,
+	dev_debug(sc->sc_dev, CE_NOTE,
 	    "devid %x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x",
 	    sc->devid[0], sc->devid[1], sc->devid[2], sc->devid[3],
 	    sc->devid[4], sc->devid[5], sc->devid[6], sc->devid[7],
@@ -573,7 +573,7 @@ vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
 		return (DDI_FAILURE);
 	}
 
-	dev_err(devinfo, CE_NOTE, "Matched successfully");
+	dev_debug(devinfo, CE_NOTE, "Matched successfully");
 
 	return (DDI_SUCCESS);
 }
@@ -628,7 +628,7 @@ vioblk_show_features(struct vioblk_softc *sc, const char *prefix,
 	bufp += snprintf(bufp, bufend - bufp, ")");
 	*bufp = '\0';
 
-	dev_err(sc->sc_dev, CE_NOTE, "%s", buf);
+	dev_debug(sc->sc_dev, CE_NOTE, "%s", buf);
 }
 
 static int
@@ -1058,7 +1058,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 	vioblk_bd_dma_attr.dma_attr_maxxfer = sc->sc_size_max;
 
-	dev_err(devinfo, CE_NOTE, "nblks=%d blksize=%d maxxfer=%d "
+	dev_debug(devinfo, CE_NOTE, "nblks=%d blksize=%d maxxfer=%d "
 	    "max data segments %d",
 	    sc->sc_nblks, sc->sc_blk_size, sc->sc_size_max,
 	    vioblk_bd_dma_attr.dma_attr_sgllen);
