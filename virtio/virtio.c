@@ -103,7 +103,8 @@ virtio_negotiate_features(struct virtio_softc *sc, uint32_t guest_features)
 	    /* LINTED E_BAD_PTR_CAST_ALIGN */
 	    (uint32_t *)(sc->sc_io_addr + VIRTIO_CONFIG_DEVICE_FEATURES));
 
-	dev_err(sc->sc_dev, CE_NOTE, "host features: %x, guest features: %x",
+	dev_debug(sc->sc_dev, CE_NOTE,
+	    "host features: %x, guest features: %x",
 	    host_features, guest_features);
 
 	features = host_features & guest_features;
@@ -539,7 +540,7 @@ virtio_alloc_vq(struct virtio_softc *sc,
 	if (r)
 		goto out_init;
 
-	dev_err(sc->sc_dev, CE_NOTE,
+	dev_debug(sc->sc_dev, CE_NOTE,
 	    "Allocated %d entries for vq %d:%s (%d incdirect descs)",
 	    vq_size, index, name, indirect_num * vq_size);
 
@@ -1203,7 +1204,7 @@ virtio_register_ints(struct virtio_softc *sc,
 
 	/* Fall back to old-fashioned interrupts. */
 	if (intr_types & DDI_INTR_TYPE_FIXED) {
-		dev_err(sc->sc_dev, CE_WARN,
+		dev_debug(sc->sc_dev, CE_WARN,
 		    "Using legacy interrupts");
 
 		return (virtio_register_intx(sc, config_handler, vq_handlers));
