@@ -250,7 +250,7 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 
 static int
 vioblk_rw(struct vioblk_softc *sc, bd_xfer_t *xfer, int type,
-			uint32_t len)
+    uint32_t len)
 {
 	struct vioblk_req *req;
 	struct vq_entry *ve_hdr;
@@ -319,7 +319,7 @@ exit_nomem:
  */
 static int
 vioblk_rw_poll(struct vioblk_softc *sc, bd_xfer_t *xfer,
-		int type, uint32_t len)
+    int type, uint32_t len)
 {
 	clock_t tmout;
 	int ret;
@@ -465,17 +465,17 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	(void) memset(&xfer, 0, sizeof (bd_xfer_t));
 	xfer.x_nblks = 1;
 
-	if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
-	    DDI_DMA_SLEEP, NULL, &xfer.x_dmah) != DDI_SUCCESS) {
-		return (DDI_FAILURE);
-	}
+	ret = ddi_dma_alloc_handle(sc->sc_dev, &vioblk_bd_dma_attr,
+	    DDI_DMA_SLEEP, NULL, &xfer.x_dmah);
+	if (ret != DDI_SUCCESS)
+		goto out_alloc;
 
-	if (ddi_dma_addr_bind_handle(xfer.x_dmah, NULL, (caddr_t)&sc->devid,
+	ret = ddi_dma_addr_bind_handle(xfer.x_dmah, NULL, (caddr_t)&sc->devid,
 	    VIRTIO_BLK_ID_BYTES, DDI_DMA_READ | DDI_DMA_CONSISTENT,
-	    DDI_DMA_SLEEP, NULL, &xfer.x_dmac, &xfer.x_ndmac) !=
-	    DDI_DMA_MAPPED) {
-		ddi_dma_free_handle(&xfer.x_dmah);
-		return (DDI_FAILURE);
+	    DDI_DMA_SLEEP, NULL, &xfer.x_dmac, &xfer.x_ndmac);
+	if (ret != DDI_DMA_MAPPED) {
+		ret = DDI_FAILURE;
+		goto out_map;
 	}
 
 	mutex_enter(&sc->lock_devid);
@@ -484,11 +484,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	    VIRTIO_BLK_ID_BYTES);
 	if (ret) {
 		mutex_exit(&sc->lock_devid);
-
-		(void) ddi_dma_unbind_handle(xfer.x_dmah);
-		ddi_dma_free_handle(&xfer.x_dmah);
-
-		return (ret);
+		goto out_rw;
 	}
 
 	/* wait for reply */
@@ -501,7 +497,7 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	/* timeout */
 	if (ret < 0) {
 		dev_err(devinfo, CE_WARN, "Cannot get devid from the device");
-		return (ret);
+		return (DDI_FAILURE);
 	}
 
 	ret = ddi_devid_init(devinfo, DEVID_ATA_SERIAL,
@@ -520,67 +516,18 @@ vioblk_devid_init(void *arg, dev_info_t *devinfo, ddi_devid_t *devid)
 	    sc->devid[16], sc->devid[17], sc->devid[18], sc->devid[19]);
 
 	return (0);
-}
 
-static int
-vioblk_match(dev_info_t *devinfo, ddi_acc_handle_t pconf)
-{
-	uint16_t vendor, device, revision, subdevice, subvendor;
-
-	vendor = pci_config_get16(pconf, PCI_CONF_VENID);
-	device = pci_config_get16(pconf, PCI_CONF_DEVID);
-	revision = pci_config_get8(pconf, PCI_CONF_REVID);
-	subvendor = pci_config_get16(pconf, PCI_CONF_SUBVENID);
-	subdevice = pci_config_get16(pconf, PCI_CONF_SUBSYSID);
-
-	if (vendor != PCI_VENDOR_QUMRANET) {
-		dev_err(devinfo, CE_WARN,
-		    "Vendor ID does not match: %x, expected %x",
-		    vendor, PCI_VENDOR_QUMRANET);
-		return (DDI_FAILURE);
-	}
-
-	if (device < PCI_DEV_VIRTIO_MIN || device > PCI_DEV_VIRTIO_MAX) {
-		dev_err(devinfo, CE_WARN,
-		    "Device ID is does not match: %x, expected"
-		    "between %x and %x", device, PCI_DEV_VIRTIO_MIN,
-		    PCI_DEV_VIRTIO_MAX);
-		return (DDI_FAILURE);
-	}
-
-	if (revision != VIRTIO_PCI_ABI_VERSION) {
-		dev_err(devinfo, CE_WARN,
-		    "Device revision does not match: %x, expected %x",
-		    revision, VIRTIO_PCI_ABI_VERSION);
-		return (DDI_FAILURE);
-	}
-
-	if (subvendor != PCI_VENDOR_QUMRANET) {
-		dev_err(devinfo, CE_WARN,
-		    "Sub-vendor ID does not match: %x, expected %x",
-		    vendor, PCI_VENDOR_QUMRANET);
-		return (DDI_FAILURE);
-	}
-
-	if (subdevice != PCI_PRODUCT_VIRTIO_BLOCK) {
-		dev_err(devinfo, CE_NOTE,
-		    "Subsystem ID does not match: %x, expected %x",
-		    vendor, PCI_VENDOR_QUMRANET);
-		dev_err(devinfo, CE_NOTE,
-		    "This is a virtio device, but not virtio-blk, "
-		    "skipping");
-
-		return (DDI_FAILURE);
-	}
-
-	dev_debug(devinfo, CE_NOTE, "Matched successfully");
-
-	return (DDI_SUCCESS);
+out_rw:
+	(void) ddi_dma_unbind_handle(xfer.x_dmah);
+out_map:
+	ddi_dma_free_handle(&xfer.x_dmah);
+out_alloc:
+	return (ret);
 }
 
 static void
 vioblk_show_features(struct vioblk_softc *sc, const char *prefix,
-		uint32_t features)
+    uint32_t features)
 {
 	char buf[512];
 	char *bufp = buf;
@@ -739,7 +686,6 @@ vioblk_int_handler(caddr_t arg1, caddr_t arg2)
 	return (DDI_INTR_CLAIMED);
 }
 
-/* ARGSUSED */
 uint_t
 vioblk_config_handler(caddr_t arg1, caddr_t arg2)
 {
@@ -769,60 +715,6 @@ vioblk_register_ints(struct vioblk_softc *sc)
 	return (ret);
 }
 
-static int
-vioblk_alloc_reqs(struct vioblk_softc *sc)
-{
-	int i, qsize;
-
-	qsize = sc->sc_vq->vq_num;
-
-	sc->sc_reqs = kmem_zalloc(sizeof (struct vioblk_req) * qsize, KM_SLEEP);
-	if (!sc->sc_reqs) {
-		dev_err(sc->sc_dev, CE_WARN,
-		    "Failed to allocate the reqs buffers array");
-		return (ENOMEM);
-	}
-
-	for (i = 0; i < qsize; i++) {
-		struct vioblk_req *req = &sc->sc_reqs[i];
-
-		if (ddi_dma_alloc_handle(sc->sc_dev, &vioblk_req_dma_attr,
-		    DDI_DMA_SLEEP, NULL, &req->dmah)) {
-
-			dev_err(sc->sc_dev, CE_WARN,
-			    "Can't allocate dma handle for req "
-			    "buffer %d", i);
-			goto exit;
-		}
-
-		if (ddi_dma_addr_bind_handle(req->dmah, NULL,
-		    (caddr_t)&req->hdr,
-		    sizeof (struct vioblk_req_hdr) + sizeof (uint8_t),
-		    DDI_DMA_RDWR | DDI_DMA_CONSISTENT, DDI_DMA_SLEEP,
-		    NULL, &req->dmac, &req->ndmac)) {
-			dev_err(sc->sc_dev, CE_WARN,
-			    "Can't bind req buffer %d", i);
-			goto exit;
-		}
-	}
-
-	return (0);
-
-exit:
-	for (i = 0; i < qsize; i++) {
-		struct vioblk_req *req = &sc->sc_reqs[i];
-
-		if (req->ndmac)
-			(void) ddi_dma_unbind_handle(req->dmah);
-
-		if (req->dmah)
-			ddi_dma_free_handle(&req->dmah);
-	}
-
-	kmem_free(sc->sc_reqs, sizeof (struct vioblk_req) * qsize);
-	return (ENOMEM);
-}
-
 static void
 vioblk_free_reqs(struct vioblk_softc *sc)
 {
@@ -842,6 +734,54 @@ vioblk_free_reqs(struct vioblk_softc *sc)
 
 	kmem_free(sc->sc_reqs, sizeof (struct vioblk_req) * qsize);
 }
+
+static int
+vioblk_alloc_reqs(struct vioblk_softc *sc)
+{
+	int i, qsize;
+	int ret;
+
+	qsize = sc->sc_vq->vq_num;
+
+	sc->sc_reqs = kmem_zalloc(sizeof (struct vioblk_req) * qsize, KM_SLEEP);
+	if (!sc->sc_reqs) {
+		dev_err(sc->sc_dev, CE_WARN,
+		    "Failed to allocate the reqs buffers array");
+		return (ENOMEM);
+	}
+
+	for (i = 0; i < qsize; i++) {
+		struct vioblk_req *req = &sc->sc_reqs[i];
+
+		ret = ddi_dma_alloc_handle(sc->sc_dev, &vioblk_req_dma_attr,
+		    DDI_DMA_SLEEP, NULL, &req->dmah);
+		if (ret != DDI_SUCCESS){
+
+			dev_err(sc->sc_dev, CE_WARN,
+			    "Can't allocate dma handle for req "
+			    "buffer %d", i);
+			goto exit;
+		}
+
+		ret = ddi_dma_addr_bind_handle(req->dmah, NULL,
+		    (caddr_t)&req->hdr,
+		    sizeof (struct vioblk_req_hdr) + sizeof (uint8_t),
+		    DDI_DMA_RDWR | DDI_DMA_CONSISTENT, DDI_DMA_SLEEP,
+		    NULL, &req->dmac, &req->ndmac);
+		if (ret != DDI_DMA_MAPPED) {
+			dev_err(sc->sc_dev, CE_WARN,
+			    "Can't bind req buffer %d", i);
+			goto exit;
+		}
+	}
+
+	return (0);
+
+exit:
+	vioblk_free_reqs(sc);
+	return (ENOMEM);
+}
+
 
 static int
 vioblk_ksupdate(kstat_t *ksp, int rw)
@@ -870,7 +810,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	int ret, instance;
 	struct vioblk_softc *sc;
 	struct virtio_softc *vsc;
-	ddi_acc_handle_t pci_conf;
 	struct vioblk_stats *ks_data;
 
 	instance = ddi_get_instance(devinfo);
@@ -881,12 +820,12 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	case DDI_RESUME:
 	case DDI_PM_RESUME:
-		dev_err(devinfo, CE_WARN, "resume unsupported yet");
+		dev_err(devinfo, CE_WARN, "resume not supported yet");
 		ret = DDI_FAILURE;
 		goto exit;
 
 	default:
-		dev_err(devinfo, CE_WARN, "cmd 0x%x unrecognized", cmd);
+		dev_err(devinfo, CE_WARN, "cmd 0x%x not recognized", cmd);
 		ret = DDI_FAILURE;
 		goto exit;
 	}
@@ -904,18 +843,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* Duplicate for faster access / less typing */
 	sc->sc_dev = devinfo;
 	vsc->sc_dev = devinfo;
-
-	ret = pci_config_setup(devinfo, &pci_conf);
-	if (ret) {
-		dev_err(devinfo, CE_WARN, "unable to setup PCI config handle");
-		goto exit_pci_conf;
-
-	}
-
-	ret = vioblk_match(devinfo, pci_conf);
-	pci_config_teardown(&pci_conf);
-	if (ret)
-		goto exit_match;
 
 	cv_init(&sc->cv_devid, NULL, CV_DRIVER, NULL);
 	mutex_init(&sc->lock_devid, NULL, MUTEX_DRIVER, NULL);
@@ -1002,18 +929,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		vioblk_ops.o_sync_cache = NULL;
 	}
 
-#if 0
-	/* Implement me some day */
-	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_GEOMETRY) {
-		int ncyls, nheads, nsects;
-		ncyls = virtio_read_device_config_2(&sc->sc_virtio,
-		    VIRTIO_BLK_CONFIG_GEOMETRY_C);
-		nheads = virtio_read_device_config_1(&sc->sc_virtio,
-		    VIRTIO_BLK_CONFIG_GEOMETRY_H);
-		nsects = virtio_read_device_config_1(&sc->sc_virtio,
-		    VIRTIO_BLK_CONFIG_GEOMETRY_S);
-	}
-#endif
 	sc->sc_seg_max = DEF_MAXINDIRECT;
 	/* The max number of segments (cookies) in a request */
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SEG_MAX) {
@@ -1037,17 +952,6 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	/* The maximum (optimal) size for a cookie in a request. */
 	sc->sc_sector_max = DEF_MAXSECTOR;
-	/*
-	 * The linux ****tards ****** up with the virtio spec here. See linux
-	 * commit 69740c8b and check the virtio spec. Just ignore it until
-	 * this is sorted out.
-	 */
-#if 0
-	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_TOPOLOGY) {
-		sc->sc_sector_max = virtio_read_device_config_4(&sc->sc_virtio,
-		    VIRTIO_BLK_CONFIG_TOPOLOGY);
-	}
-#endif
 
 	/* The maximum request size */
 	sc->sc_size_max = vioblk_bd_dma_attr.dma_attr_sgllen *
@@ -1058,7 +962,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 	vioblk_bd_dma_attr.dma_attr_maxxfer = sc->sc_size_max;
 
-	dev_debug(devinfo, CE_NOTE, "nblks=%d blksize=%d maxxfer=%d "
+	dev_debug(devinfo, CE_NOTE, "nblks=%lu blksize=%d maxxfer=%d "
 	    "max data segments %d",
 	    sc->sc_nblks, sc->sc_blk_size, sc->sc_size_max,
 	    vioblk_bd_dma_attr.dma_attr_sgllen);
@@ -1113,13 +1017,11 @@ exit_int:
 exit_features:
 	virtio_set_status(&sc->sc_virtio, VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
 	ddi_regs_map_free(&sc->sc_virtio.sc_ioh);
-exit_intrstat:
 exit_map:
 	kstat_delete(sc->sc_intrstat);
+exit_intrstat:
 	mutex_destroy(&sc->lock_devid);
 	cv_destroy(&sc->cv_devid);
-exit_match:
-exit_pci_conf:
 	kmem_free(sc, sizeof (struct vioblk_softc));
 exit:
 	return (ret);

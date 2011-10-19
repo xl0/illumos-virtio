@@ -71,13 +71,13 @@
 #include <sys/cmn_err.h>
 #include <sys/list.h>
 
+#ifdef DEBUG
 #define	TRACE { \
 	cmn_err(CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
 }
-
-#define	FAST_TRACE { \
-	cmn_err(CE_NOTE, "^%s:%d %s()\n", __FILE__, __LINE__, __func__); \
-}
+#else
+#define	TRACE
+#endif
 
 typedef boolean_t bool;
 #define	__packed  __attribute__((packed))

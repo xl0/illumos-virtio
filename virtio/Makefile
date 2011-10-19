@@ -18,10 +18,8 @@ all: virtio
 virtio: virtio.c virtiovar.h virtioreg.h
 	$(CC) $(CFLAGS) -c virtio.c -o virtio.o
 	$(CTFCONVERT) -i -L VERSION virtio.o
-	$(CC) $(CFLAGS) -c util.c -o util.o
-	$(CTFCONVERT) -i -L VERSION util.o
-	$(LD) $(LDFLAGS) virtio.o util.o -o virtio
-	$(CTFMERGE) -L VERSION -o virtio virtio.o util.o
+	$(LD) $(LDFLAGS) virtio.o -o virtio
+	$(CTFMERGE) -L VERSION -o virtio virtio.o
 
 clean:
-	rm -f virtio virtio.o util.o
+	rm -f virtio virtio.o

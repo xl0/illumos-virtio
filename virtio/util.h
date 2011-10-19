@@ -2,17 +2,18 @@
 #include <sys/dditypes.h>
 #include <sys/sysmacros.h>
 
+#define dev_err(dip, ce, fmt, arg...) \
+	cmn_err(ce, "%s%d: " fmt, ddi_driver_name(dip), \
+	    ddi_get_instance(dip), ##arg)
+
 #ifdef DEBUG
-#define dev_debug(dip, fmt, arg...) \
-	dev_err(dip, fmt, ##arg)
+#define dev_debug(dip, ce, fmt, arg...) \
+	cmn_err(ce, "%s%d: " fmt, ddi_driver_name(dip), \
+	    ddi_get_instance(dip), ##arg)
 #else
-#define dev_debug(dip, fmt, arg...)
+#define dev_debug(dip, ce, fmt, arg...)
 #endif
 
-void dev_err(dev_info_t *dip, int ce, char *fmt, ...);
-void dev_panic(dev_info_t *dip, char *fmt, ...);
-
-void hex_dump(char *prefix, void *addr, int len);
 
 /*
  * container_of taken from FreeBSD.
