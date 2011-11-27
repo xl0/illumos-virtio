@@ -1,19 +1,44 @@
 
 #include <sys/dditypes.h>
 #include <sys/sysmacros.h>
+#include <sys/log.h>
 
-#define dev_err(dip, ce, fmt, arg...) \
-	cmn_err(ce, "%s%d: " fmt, ddi_driver_name(dip), \
-	    ddi_get_instance(dip), ##arg)
+#if defined (__GNUC__)
+#define dev_err(dip, ce, fmt, ...)	\
+	cmn_err(ce, "%s%d: " fmt, ddi_driver_name(dip),	\
+			ddi_get_instance(dip), ## __VA_ARGS__);
+#elif defined (__SUNPRO_C)
+	/*
+	 * The Sun Studio does not support the ##__VAR_ARGS__ extension,
+	 * so we fall back to the function with a constant size buffer.
+	 */
 
-#ifdef DEBUG
-#define dev_debug(dip, ce, fmt, arg...) \
-	cmn_err(ce, "%s%d: " fmt, ddi_driver_name(dip), \
-	    ddi_get_instance(dip), ##arg)
+	/* Get rid of this when/if we drop SS support */
+
+/* PRINTFLIKE3 */
+static void
+dev_err(dev_info_t *dip, int ce, char *fmt, ...)
+{
+	va_list ap;
+	char buf[LOG_MSGSIZE];
+
+	va_start(ap, fmt);
+	(void) vsnprintf(buf, sizeof (buf), fmt, ap);
+	va_end(ap);
+
+	cmn_err(ce, "%s%d: %s", ddi_driver_name(dip),
+			ddi_get_instance(dip), buf);
+}
 #else
-#define dev_debug(dip, ce, fmt, arg...)
+#error "Unknown compiler"
 #endif
 
+#ifdef DEBUG
+#define dev_debug(dip, fmt, arg...) \
+	dev_err(dip, fmt, ##arg)
+#else
+#define dev_debug(dip, fmt, arg...)
+#endif
 
 /*
  * container_of taken from FreeBSD.
