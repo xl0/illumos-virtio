@@ -148,8 +148,7 @@ struct vioblk_softc {
 	boolean_t		sc_readonly;
 	int			sc_blk_size;
 	int			sc_seg_max;
-	int			sc_size_max;
-	int			sc_sector_max;
+	int			sc_seg_size_max;
 	kmutex_t		lock_devid;
 	kcondvar_t		cv_devid;
 	char			devid[VIRTIO_BLK_ID_BYTES + 1];
@@ -218,6 +217,7 @@ ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEFAULT_ACC
 };
 
+/* DMA attr for the indirect descripbor space. */
 static ddi_dma_attr_t vioblk_req_dma_attr = {
 	DMA_ATTR_V0,			/* dma_attr version	*/
 	0,				/* dma_attr_addr_lo	*/
@@ -226,13 +226,14 @@ static ddi_dma_attr_t vioblk_req_dma_attr = {
 	1,				/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
-	0x40000000,			/* dma_attr_maxxfer	*/
+	0,				/* dma_attr_maxxfer, set in attach */
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
-	1,				/* dma_attr_sgllen	*/
+	1,				/* dma_attr_sgllen, set in attach */
 	1,				/* dma_attr_granular	*/
 	0,				/* dma_attr_flags	*/
 };
 
+/* DMA attr for the data blocks. */
 static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	DMA_ATTR_V0,			/* dma_attr version	*/
 	0,				/* dma_attr_addr_lo	*/
@@ -241,7 +242,7 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	1,				/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
-	0x40000000,			/* dma_attr_maxxfer	*/
+	512,				/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
 	-1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
@@ -925,6 +926,7 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 		    VIRTIO_BLK_CONFIG_BLK_SIZE);
 	}
 
+	/* Flushing is not supported. */
 	if (!(sc->sc_virtio.sc_features & VIRTIO_BLK_F_FLUSH)) {
 		vioblk_ops.o_sync_cache = NULL;
 	}
@@ -940,9 +942,8 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 			sc->sc_seg_max = 1;
 
 		/*
-		 * That's also what Linux does. It seems that SEG_MAX
-		 * corresponds to the number of _data_ blocks in a
-		 * request.
+		 * SEG_MAX corresponds to the number of _data_
+		 * blocks in a request
 		 */
 		sc->sc_seg_max += 2;
 	}
@@ -950,22 +951,23 @@ vioblk_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	vioblk_bd_dma_attr.dma_attr_sgllen = sc->sc_seg_max - 2;
 
 
-	/* The maximum (optimal) size for a cookie in a request. */
-	sc->sc_sector_max = DEF_MAXSECTOR;
-
-	/* The maximum request size */
-	sc->sc_size_max = vioblk_bd_dma_attr.dma_attr_sgllen *
-	    sc->sc_sector_max;
+	/* The maximum size for a cookie in a request. */
+	sc->sc_seg_size_max = DEF_MAXSECTOR;
 	if (sc->sc_virtio.sc_features & VIRTIO_BLK_F_SIZE_MAX) {
-		sc->sc_size_max = virtio_read_device_config_4(&sc->sc_virtio,
+		sc->sc_seg_size_max = virtio_read_device_config_4(&sc->sc_virtio,
 		    VIRTIO_BLK_CONFIG_SIZE_MAX);
 	}
-	vioblk_bd_dma_attr.dma_attr_maxxfer = sc->sc_size_max;
 
-	dev_debug(devinfo, CE_NOTE, "nblks=%lu blksize=%d maxxfer=%d "
-	    "max data segments %d",
-	    sc->sc_nblks, sc->sc_blk_size, sc->sc_size_max,
-	    vioblk_bd_dma_attr.dma_attr_sgllen);
+	/* The maximum request size */
+	vioblk_bd_dma_attr.dma_attr_maxxfer =
+	    vioblk_bd_dma_attr.dma_attr_sgllen * sc->sc_seg_size_max;
+
+	dev_debug(devinfo, CE_NOTE,
+	    "nblks=%lu blksize=%d  num_seg=%d, seg_size=%d, maxxfer=%lu",
+	    sc->sc_nblks, sc->sc_blk_size,
+	    vioblk_bd_dma_attr.dma_attr_sgllen,
+	    sc->sc_seg_size_max,
+	    vioblk_bd_dma_attr.dma_attr_maxxfer);
 
 
 	sc->sc_vq = virtio_alloc_vq(&sc->sc_virtio, 0, 0,
