@@ -217,7 +217,7 @@ ddi_device_acc_attr_t vioblk_attr = {
 	DDI_DEFAULT_ACC
 };
 
-/* DMA attr for the indirect descripbor space. */
+/* DMA attr for the header/status blocks. */
 static ddi_dma_attr_t vioblk_req_dma_attr = {
 	DMA_ATTR_V0,			/* dma_attr version	*/
 	0,				/* dma_attr_addr_lo	*/
@@ -226,9 +226,9 @@ static ddi_dma_attr_t vioblk_req_dma_attr = {
 	1,				/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
-	0,				/* dma_attr_maxxfer, set in attach */
+	512,				/* dma_attr_maxxfer	*/
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
-	1,				/* dma_attr_sgllen, set in attach */
+	1,				/* dma_attr_sgllen	*/
 	1,				/* dma_attr_granular	*/
 	0,				/* dma_attr_flags	*/
 };
@@ -242,9 +242,9 @@ static ddi_dma_attr_t vioblk_bd_dma_attr = {
 	1,				/* dma_attr_align	*/
 	1,				/* dma_attr_burstsizes	*/
 	1,				/* dma_attr_minxfer	*/
-	512,				/* dma_attr_maxxfer	*/
+	0,				/* dma_attr_maxxfer, set in attach */
 	0xFFFFFFFFFFFFFFFFull,		/* dma_attr_seg		*/
-	-1,				/* dma_attr_sgllen	*/
+	0,				/* dma_attr_sgllen, set in attach */
 	1,				/* dma_attr_granular	*/
 	0,				/* dma_attr_flags	*/
 };
